@@ -9,6 +9,11 @@
 # time rather than shipped, because a host key baked into an image is the
 # same key on every machine ever installed from it.
 
+# ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
+# so that it can also be run, and tested, on its own.
+if ! command -v choose >/dev/null 2>&1; then
+	. "$(dirname "$0")/../lib/ui.sh"
+fi
 need_root
 
 choice=$(choose 'SSH daemon' \

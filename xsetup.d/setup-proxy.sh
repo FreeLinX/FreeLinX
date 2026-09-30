@@ -10,6 +10,11 @@
 # /etc/environment.  A URL with no scheme is completed as http://, which is
 # what people type.
 
+# ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
+# so that it can also be run, and tested, on its own.
+if ! command -v choose >/dev/null 2>&1; then
+	. "$(dirname "$0")/../lib/ui.sh"
+fi
 need_root
 
 mkdir -p /etc

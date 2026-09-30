@@ -35,28 +35,28 @@ if printf 'y\n' | ask_yes Go; then pass=$((pass+1)); printf '  ok   ask_yes y\n'
 if printf 'n\n' | ask_yes Go; then fail=$((fail+1)); printf '  FAIL ask_yes n returned true\n'; else pass=$((pass+1)); printf '  ok   ask_yes n\n'; fi
 
 echo "== choose: first, middle, last =="
-ok_is 'choose 1'  "$(printf '1\n' | choose Pick RED red green blue)"   'RED'
-ok_is 'choose 2'  "$(printf '2\n' | choose Pick RED red green blue)"   'RED'
-ok_is 'choose 3'  "$(printf '3\n' | choose Pick RED red green blue)"   'RED'
+ok_is 'choose 1'  "$(printf '1\n' | choose Pick RED 'red' GREEN 'green' BLUE 'blue')"   'RED'
+ok_is 'choose 2'  "$(printf '2\n' | choose Pick RED 'red' GREEN 'green' BLUE 'blue')"   'GREEN'
+ok_is 'choose 3'  "$(printf '3\n' | choose Pick RED 'red' GREEN 'green' BLUE 'blue')"   'BLUE'
 
 echo "== choose: single item =="
 ok_is 'choose 1 of 1' "$(printf '1\n' | choose Only SOLO 'the only one')" 'SOLO'
 
 echo "== choose: out of range, then valid =="
-ok_is 'choose retries after 9' "$(printf '9\n0\n2\n' | choose Pick RED red green blue)" 'RED'
+ok_is 'choose retries after 9' "$(printf '9\n0\n2\n' | choose Pick RED 'red' GREEN 'green' BLUE 'blue')" 'GREEN'
 
 echo "== choose: non-numeric, then valid =="
-ok_is 'choose retries after abc' "$(printf 'abc\n2\n' | choose Pick RED red green blue)" 'RED'
+ok_is 'choose retries after abc' "$(printf 'abc\n2\n' | choose Pick RED 'red' GREEN 'green' BLUE 'blue')" 'GREEN'
 
 echo "== choose: EOF must die, not loop =="
-_out=$( (choose Pick RED red green blue </dev/null) 2>&1 )
+_out=$( (choose Pick RED 'red' GREEN 'green' BLUE 'blue' </dev/null) 2>&1 )
 case $_out in
 *'input ended'*) pass=$((pass+1)); printf '  ok   choose EOF dies\n' ;;
 *) fail=$((fail+1)); printf '  FAIL choose EOF: got [%s]\n' "$_out" ;;
 esac
 
 echo "== choose: the menu is actually printed =="
-_menu=$( (printf '1\n' | choose Pick RED alpha beta) 2>&1 >/dev/null )
+_menu=$( (printf '1\n' | choose Pick RED 'alpha' BLUE 'beta') 2>&1 >/dev/null )
 for want in 'alpha' 'beta' '1)' '2)'; do
 	case $_menu in
 	*"$want"*) pass=$((pass+1)); printf '  ok   menu shows %s\n' "$want" ;;
@@ -67,6 +67,31 @@ done
 echo "== confirm: only 'yes' proceeds =="
 if printf 'yes\n' | confirm Go; then pass=$((pass+1)); printf '  ok   confirm yes\n'; else fail=$((fail+1)); printf '  FAIL confirm yes\n'; fi
 if printf 'no\nnope\nyes\n' | confirm Go; then pass=$((pass+1)); printf '  ok   confirm retries\n'; else fail=$((fail+1)); printf '  FAIL confirm retries\n'; fi
+
+echo '== the menu shows labels, never the values =='
+_menu=$( (printf '1\n' | choose Pick none 'run from RAM' sys 'install onto a disk') 2>&1 >/dev/null )
+for bad in 'none' 'sys'; do
+	case $_menu in
+	*"$bad"*) fail=$((fail+1)); printf '  FAIL the value [%s] is showing in the menu\n' "$bad" ;;
+	*) pass=$((pass+1)); printf '  ok   the value [%s] is not in the menu\n' "$bad" ;;
+	esac
+done
+for good in 'run from RAM' 'install onto a disk'; do
+	case $_menu in
+	*"$good"*) pass=$((pass+1)); printf '  ok   the label [%s] is shown\n' "$good" ;;
+	*) fail=$((fail+1)); printf '  FAIL the label [%s] is missing\n' "$good" ;;
+	esac
+done
+# the chosen value, not the label, is what comes back
+ok_is 'the value comes back, not the label' \
+	"$(printf '2\n' | choose Pick none 'run from RAM' sys 'install onto a disk')" 'sys'
+
+echo '== an odd number of arguments is an error, not a wild menu =='
+_out=$( (printf '1\n' | choose Pick onlyvalue 2>&1 >/dev/null); echo "rc=$?" )
+case $_out in
+*'odd number'*) pass=$((pass+1)); printf '  ok   reported\n' ;;
+*) fail=$((fail+1)); printf '  FAIL not reported: %s\n' "$_out" ;;
+esac
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

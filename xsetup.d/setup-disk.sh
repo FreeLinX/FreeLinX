@@ -15,7 +15,18 @@
 # sys and data are never selected without saying what they will do and asking
 # for the word "yes".  Nothing is written until that answer.
 
-need_root
+# ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
+# so that it can also be run, and tested, on its own.
+if ! command -v choose >/dev/null 2>&1; then
+	. "$(dirname "$0")/../lib/ui.sh"
+fi
+# A dry run writes nothing, so it does not need root; making it demand root
+# would mean the plan could not be checked by the person considering it, on
+# their own machine, before committing to it.  It is also what lets the test
+# suite run without a loop device.
+if [ "${XSETUP_DRY_RUN:-}" != 1 ]; then
+	need_root
+fi
 
 # flxpart reports its layout as FLX_PART<n>_* on stdout, which is the only
 # supported way to learn where the partitions ended up: reading the table back
@@ -23,8 +34,34 @@ need_root
 # be wrong about what a partition is.
 need_cmd flxpart 'the sysutils/flxpart port'
 
-MODE_FILE=/etc/xsetup-disk-mode
+MODE_FILE=${XSETUP_STATE_FILE:-/etc/xsetup-disk-mode}
 DONE_FILE=/etc/xsetup-disk-installed
+
+# --dry-run: print every destructive step and do none of them.
+#
+# The whole of this step is irreversible, and the parts most likely to be
+# wrong -- the partition naming, the fstab UUIDs, which device node is which
+# partition -- are all decidable before anything is written.  So the plan can
+# be shown and checked on a machine where the answer is not yet a formatted
+# disk.  Read it as "this is what will happen", not as a promise that the
+# commands would succeed.
+DRY=0
+case " ${XSETUP_DRY_RUN:-} " in
+*" 1 "*) DRY=1 ;;
+esac
+
+# run CMD... - do a command, or say what it would have been.
+run() {
+	if [ "$DRY" -eq 1 ]; then
+		printf '  would run: %s\n' "$*"
+		return 0
+	fi
+	"$@"
+}
+
+# The layout flxpart would produce, so a dry run can show the geometry without
+# writing a table.  On a real run this comes from the real partitioning.
+_layout=
 
 # --- the choice ------------------------------------------------------------
 
@@ -49,6 +86,18 @@ fi
 # A disk that is not there cannot be chosen, and neither can a mounted one.
 # Writing to a mounted filesystem destroys the mount, not just the data.
 disks() {
+	# XSETUP_DISK_OVERRIDE exists so the test suite can run this step
+	# without root and without a loop device, by naming a plain file in
+	# place of a disk.  It only makes sense with --dry-run: a real run
+	# against a regular file would format a file and call it a disk.
+	if [ -n "${XSETUP_DISK_OVERRIDE:-}" ]; then
+		[ "$DRY" -eq 1 ] ||
+			die 'XSETUP_DISK_OVERRIDE is only honoured with --dry-run'
+		[ -e "$XSETUP_DISK_OVERRIDE" ] ||
+			die "XSETUP_DISK_OVERRIDE: $XSETUP_DISK_OVERRIDE does not exist"
+		printf '%s\n' "$XSETUP_DISK_OVERRIDE"
+		return 0
+	fi
 	_d=
 	for p in /dev/sd? /dev/nvme?n? /dev/vd? /dev/xvd? /dev/mmcblk?; do
 		[ -b "$p" ] || continue
@@ -71,12 +120,13 @@ fi
 info 'disks found:'
 for d in $devs; do
 	_dsize=$(df -h "$d" 2>/dev/null | awk 'NR==2 {print $2" total, "$4" used"}')
-	printf '  %-16s %s\n' "$d" "${_dsize:-unreadable}"
+	printf '  %-16s %s\n' "$d" "${_dsize:-$(wc -c <"$d" 2>/dev/null | tr -d ' ') bytes}"
 done
 printf '\n'
 
 # shellcheck disable=SC2086
-dev=$(choose 'Which disk' none $(for d in $devs; do printf '"%s" ' "$d"; done | sed 's/ *$//'))
+dev=$(choose 'Which disk' none 'leave it alone' \
+	$(for d in $devs; do printf '%s %s ' "$d" "$d"; done))
 [ "$dev" = none ] && die 'no disk was chosen, so nothing was written'
 
 # Anything mounted out of this device stops the install.  Silently
@@ -100,8 +150,18 @@ confirm "This erases $dev" || die 'nothing was changed'
 
 info "partitioning $dev"
 esp_mb=256
-layout=$(flxpart --create-standard --esp-size "$esp_mb" "$dev") ||
-	die "flxpart could not partition $dev"
+if [ "$DRY" -eq 1 ]; then
+	# A dry run partitions nothing, so the layout it reports is the one
+	# flxpart computes from the device size without writing.  That is the
+	# only honest way to show the geometry: the real numbers come from a
+	# real table, and a dry run says so rather than inventing LBAs.
+	layout=$(flxpart --create-standard --esp-size "$esp_mb" --dry-run "$dev") ||
+		die "flxpart could not compute a layout for $dev"
+	say "  (dry run: nothing has been written to $dev)"
+else
+	layout=$(flxpart --create-standard --esp-size "$esp_mb" "$dev") ||
+		die "flxpart could not partition $dev"
+fi
 
 # Pull the partitions out of the reported layout, matched on their type GUID
 # rather than on their name or their position.  The name is for a human and the
@@ -159,14 +219,19 @@ need_cmd mkfs.fat 'the sysutils/dosfstools port'
 info "making a FAT filesystem on $ESP_DEV"
 # -F 32: the UEFI spec requires FAT32 on the ESP, and a 256 MiB partition
 # formatted as FAT16 will not boot.
-mkfs.fat -F 32 -n EFI "$ESP_DEV" >/dev/null 2>&1 ||
-	die "mkfs.fat failed on $ESP_DEV"
-ok "ESP formatted"
+if [ "$DRY" -eq 1 ]; then
+	say "  would run: mkfs.fat -F 32 -n EFI $ESP_DEV"
+	say "  would run: mkfs.ext4 -q -L freelinx $ROOT_DEV"
+else
+	mkfs.fat -F 32 -n EFI "$ESP_DEV" >/dev/null 2>&1 ||
+		die "mkfs.fat failed on $ESP_DEV"
+	ok "ESP formatted"
 
-info "making an ext4 filesystem on $ROOT_DEV"
-mkfs.ext4 -q -L freelinx "$ROOT_DEV" ||
-	die "mkfs.ext4 failed on $ROOT_DEV"
-ok "root formatted"
+	info "making an ext4 filesystem on $ROOT_DEV"
+	mkfs.ext4 -q -L freelinx "$ROOT_DEV" ||
+		die "mkfs.ext4 failed on $ROOT_DEV"
+	ok "root formatted"
+fi
 
 # --- copying the system ---------------------------------------------------
 

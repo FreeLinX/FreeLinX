@@ -19,6 +19,11 @@
 # step that appeared to change the console and did not would leave somebody
 # typing a German layout on a US console with no way to tell why.
 
+# ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
+# so that it can also be run, and tested, on its own.
+if ! command -v choose >/dev/null 2>&1; then
+	. "$(dirname "$0")/../lib/ui.sh"
+fi
 need_root
 
 mkdir -p /etc/conf.d

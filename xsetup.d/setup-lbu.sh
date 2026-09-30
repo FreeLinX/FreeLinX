@@ -10,6 +10,11 @@
 # reboot, or the answer is "nowhere", which is a legitimate answer and the
 # one a machine with no disk gets by default.
 
+# ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
+# so that it can also be run, and tested, on its own.
+if ! command -v choose >/dev/null 2>&1; then
+	. "$(dirname "$0")/../lib/ui.sh"
+fi
 need_root
 
 MODE=none
@@ -64,8 +69,8 @@ disk)
 	done
 
 	# shellcheck disable=SC2086
-	dev=$(choose 'Which disk holds the overlay' none \
-		$(for d in $devs; do printf '"%s" ' "$d"; done | sed 's/ *$//'))
+	dev=$(choose 'Which disk holds the overlay' none 'leave it alone' \
+		$(for d in $devs; do printf '%s %s ' "$d" "$d"; done))
 	[ "$dev" = none ] && die 'no disk was chosen, so the overlay stays unset'
 
 	warn "about to write to $dev"

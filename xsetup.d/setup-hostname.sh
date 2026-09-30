@@ -8,6 +8,11 @@
 # command, in /etc/hostname so it survives a reboot, and in /etc/hosts so
 # things that resolve by name do not stall on a DNS lookup.
 
+# ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
+# so that it can also be run, and tested, on its own.
+if ! command -v choose >/dev/null 2>&1; then
+	. "$(dirname "$0")/../lib/ui.sh"
+fi
 need_root
 
 DEFAULT=$(cat /etc/hostname 2>/dev/null | head -1)

@@ -100,28 +100,51 @@ ask_yes() {
 # user sees.  This is what makes a menu a menu: the caller never has to map a
 # number back to a value, and a menu can never be accidentally muted, because
 # there is no code path here that hides the list.
-# choose PROMPT VALUE LABEL... - numbered menu, returns VALUE.
+# choose PROMPT VALUE LABEL [VALUE LABEL]... - numbered menu, returns VALUE.
 #
-# The value comes first and the labels follow, so a label never has to be
-# repeated as the value and the menu shows exactly the choices there are.
+# Each option is a value and the label that describes it, as a pair.  The
+# pairs are the point: with a single value followed by a list of labels, the
+# value has to be repeated as a label or it shows up in the menu as an option,
+# and every call site got that wrong the same way -- the disk menu offered
+# "1) run from RAM  2) sys  3) install onto a disk  4) data".  Pairs also let a
+# value differ from what is displayed, which is what a caller wants when the
+# value is a word like "none" and the label is a sentence.
+#
 # Nothing here can mute the list: the labels are the only way to answer, so a
 # caller that wants a menu gets a menu.
-#
-#     disk=$(choose 'Pick a disk' /dev/sda '/dev/sda  100 GB' '/dev/sdb  500 GB')
 choose() {
 	_prompt=$1
-	_value=$2
-	shift 2
-	_n=$#
+	shift
+	_nargs=$#
+
+	if [ $((_nargs % 2)) -ne 0 ]; then
+		printf '%serror:%s choose: "%s" was given an odd number of arguments;\n' \
+			"$C_RED" "$C_OFF" "$_prompt" >&2
+		printf '%s     each option needs a value and a label%s\n' \
+			"$C_RED" "$C_OFF" >&2
+		return 1
+	fi
 
 	printf '%s%s%s\n' "$C_BOLD" "$_prompt" "$C_OFF" >&2
-	_i=1
-	while [ "$_i" -le "$_n" ]; do
-		# Labels sit at 1.._n after the shift.  _i is a literal integer
-		# here, so this cannot be used to read an arbitrary variable.
-		printf '  %s) %s\n' "$_i" "${!_i}" >&2
-		_i=$((_i + 1))
-	done
+
+	_nopts=$((_nargs / 2))
+
+	# Print the labels in a subshell, because the walk shifts the positional
+	# parameters and the answer has to come out of the same ones afterwards.
+	# Shifting in this shell would leave nothing left to return: the menu
+	# printed correctly and every answer came back empty.  Indirect
+	# expansion ${!_i} is the obvious alternative and is not POSIX -- bash
+	# and musl ash both have it, but a POSIX sh need not, and this is the one
+	# function every step goes through.
+	(
+		_i=1
+		while [ "$_i" -le "$_nargs" ]; do
+			_label=$2
+			shift 2
+			printf '  %s) %s\n' "$(((_i + 1) / 2))" "$_label" >&2
+			_i=$((_i + 2))
+		done
+	)
 
 	while :; do
 		# ask dies on EOF, but it runs inside a command substitution, so its
@@ -141,11 +164,18 @@ choose() {
 			continue
 			;;
 		esac
-		if [ "$_reply" -ge 1 ] && [ "$_reply" -le "$_n" ]; then
-			printf '%s' "$_value"
-			return 0
+		if [ "$_reply" -lt 1 ] || [ "$_reply" -gt "$_nopts" ]; then
+			warn "choose 1 to $_nopts"
+			continue
 		fi
-		warn "choose 1 to $_n"
+		# Walk to the chosen pair and print its value.
+		_i=1
+		while [ "$_i" -lt "$_reply" ]; do
+			shift 2
+			_i=$((_i + 1))
+		done
+		printf '%s' "$1"
+		return 0
 	done
 }
 
@@ -171,8 +201,11 @@ confirm() {
 need_cmd() {
 	command -v "$1" >/dev/null 2>&1 && return 0
 	if [ -n "${2:-}" ]; then
+		# The second argument is a complete phrase naming the port, not a
+		# bare port name: wrapping it here gave "It comes from the the
+		# sysutils/flxpart port port".
 		die "$1 is not installed, so this step cannot do its job.
-     It comes from the $2 port."
+     It comes from $2."
 	fi
 	die "$1 is not installed, so this step cannot do its job."
 }

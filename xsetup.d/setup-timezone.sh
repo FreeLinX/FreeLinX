@@ -10,6 +10,11 @@
 # disk is mounted somewhere else.  /etc/timezone names the zone in text, for
 # the things that cannot follow a link.
 
+# ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
+# so that it can also be run, and tested, on its own.
+if ! command -v choose >/dev/null 2>&1; then
+	. "$(dirname "$0")/../lib/ui.sh"
+fi
 need_root
 
 ZONEINFO=/usr/share/zoneinfo

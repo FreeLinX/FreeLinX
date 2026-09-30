@@ -10,6 +10,11 @@
 # checked against /etc/xpkg/keys.  Reading it is anonymous.  Only publishing
 # to it needs a token, and that is not something an installer does.
 
+# ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
+# so that it can also be run, and tested, on its own.
+if ! command -v choose >/dev/null 2>&1; then
+	. "$(dirname "$0")/../lib/ui.sh"
+fi
 need_root
 need_cmd xpkg 'xpkg' 'the xpkg port'
 

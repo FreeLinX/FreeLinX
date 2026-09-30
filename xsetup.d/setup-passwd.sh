@@ -12,6 +12,11 @@
 # is a remote shell for anyone who can reach it, and the refusal is here so
 # that is not a thing somebody can do by pressing return too many times.
 
+# ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
+# so that it can also be run, and tested, on its own.
+if ! command -v choose >/dev/null 2>&1; then
+	. "$(dirname "$0")/../lib/ui.sh"
+fi
 need_root
 need_cmd flxpasswd 'the base/flxpasswd port'
 

@@ -8,6 +8,11 @@
 # this step exists to give the person installing it somewhere else to stand.
 # The account goes in the wheel group, which is what sudo and doas look for.
 
+# ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
+# so that it can also be run, and tested, on its own.
+if ! command -v choose >/dev/null 2>&1; then
+	. "$(dirname "$0")/../lib/ui.sh"
+fi
 need_root
 
 if ! ask_yes 'Create a user account' y; then
