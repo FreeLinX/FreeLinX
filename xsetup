@@ -1,0 +1,183 @@
+#!/bin/sh
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 FreeLinX OS Project.
+#
+# xsetup - the FreeLinX installer.
+#
+# Twelve steps, run in order, each one skippable and each one recorded, so an
+# install that is interrupted can be resumed and will not ask again about
+# something already answered.
+#
+#   xsetup              run every step that is still outstanding
+#   xsetup --list       list the steps
+#   xsetup setup-disk   run one step by name
+#   xsetup --status     show which steps are done
+#   xsetup --reset NAME forget one step and run it again
+
+set -eu
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+. "$HERE/lib/ui.sh"
+
+# Progress lives in /etc because it has to survive a reboot in the middle of
+# an install, and a partial install is the normal case, not an edge case.
+STATE=${XSETUP_STATE:-/etc/xsetup.state}
+
+# The twelve steps, in the order they run.  These names are the interface:
+# scripts, documentation and muscle memory all use them, so they are not
+# renamed for tidiness.
+STEPS='setup-keymap
+setup-hostname
+setup-interfaces
+setup-passwd
+setup-timezone
+setup-proxy
+setup-ntp
+setup-apkrepos
+setup-user
+setup-sshd
+setup-disk
+setup-lbu
+setup-apkcache'
+
+# Number of steps for the [n/N] banner, counting each entry once.
+NSTEPS=$(printf '%s\n' "$STEPS" | wc -l | tr -d ' ')
+
+usage() {
+	cat <<EOF
+usage: ${0##*/} [OPTION]... [STEP]...
+
+Runs the FreeLinX installer.  With no step named, every step that has not
+been done yet is run in order.
+
+  --list        list the steps
+  --status      show which steps are already done
+  --reset NAME  forget NAME so it runs again
+  -h, --help    this message
+
+Steps:
+$(printf '%s\n' "$STEPS" | sed 's/^/  /')
+EOF
+}
+
+# step_index NAME - 1-based position of NAME, or non-zero if it is not a step.
+step_index() {
+	_i=0
+	printf '%s\n' "$STEPS" | while read -r _s; do
+		_i=$((_i + 1))
+		[ "$_s" = "$1" ] && printf '%s\n' "$_i" && break
+	done
+}
+
+# is_step NAME - true when NAME is one of the twelve.
+is_step() {
+	printf '%s\n' "$STEPS" | grep -qx "$1"
+}
+
+# is_done NAME - true when NAME is recorded in the state file.
+is_done() {
+	[ -f "$STATE" ] && grep -qx "$1" "$STATE"
+}
+
+# mark_done NAME - record NAME.  The temp file then rename makes an
+# interrupted write leave the old state intact rather than a half-written one.
+mark_done() {
+	_mkdir=$(dirname "$STATE")
+	[ -d "$_mkdir" ] || mkdir -p "$_mkdir"
+	_tmp=$STATE.$$
+	{ [ -f "$STATE" ] && cat "$STATE"; printf '%s\n' "$1"; } >"$_tmp"
+	sort -u "$_tmp" >"$STATE.new"
+	mv "$STATE.new" "$STATE"
+	rm -f "$_tmp"
+	unset _mkdir _tmp
+}
+
+show_list() {
+	printf 'steps:\n'
+	printf '%s\n' "$STEPS" | sed 's/^/  /'
+}
+
+show_status() {
+	printf '%-20s %s\n' STEP STATUS
+	printf '%s\n' "$STEPS" | while read -r s; do
+		if is_done "$s"; then
+			printf '%-20s %sdone%s\n' "$s" "$C_GREEN" "$C_OFF"
+		else
+			printf '%-20s %s\n' "$s" pending
+		fi
+	done
+}
+
+# run_step NAME - run one step, and only mark it done if it succeeded.
+run_step() {
+	_name=$1
+	_file=$HERE/xsetup.d/$_name.sh
+
+	[ -f "$_file" ] || die "no such step: $_name (looked for $_file)"
+
+	step_start "$(step_index "$_name")" "$NSTEPS" "$_name"
+
+	# A step that fails must not be recorded, or --reset becomes the only
+	# way back and a typo would be permanent.
+	if . "$_file"; then
+		mark_done "$_name"
+		ok "$_name"
+	else
+		die "$_name failed; it has not been marked done, run it again"
+	fi
+	unset _name _file
+}
+
+# run_ordered - every outstanding step, in order.
+#
+# A here-doc, not a pipe: piping into while runs the body in a subshell, so a
+# step that calls die would kill only the subshell and the remaining steps
+# would run anyway.
+run_ordered() {
+	while read -r s; do
+		if is_done "$s"; then
+			# Already answered, but say so: a silent skip looks like a
+			# step that vanished.
+			printf '  %-20s %salready done, skipping%s\n' "$s" \
+				"$C_YELLOW" "$C_OFF"
+			continue
+		fi
+		run_step "$s"
+	done <<EOF
+$STEPS
+EOF
+	done_message
+}
+
+# Command line.
+[ $# -gt 0 ] || { run_ordered; exit 0; }
+
+while [ $# -gt 0 ]; do
+	case $1 in
+	-h|--help)  usage; exit 0 ;;
+	--list)     show_list; exit 0 ;;
+	--status)   show_status; exit 0 ;;
+	--reset)
+		[ $# -ge 2 ] || die '--reset needs a step name'
+		is_step "$2" || die "not a step: $2"
+		[ -f "$STATE" ] || die "nothing recorded yet, so $2 is not done"
+		_tmp=$STATE.$$
+		grep -vx "$2" "$STATE" >"$_tmp" || :
+		mv "$_tmp" "$STATE"
+		rm -f "$_tmp"
+		unset _tmp
+		say "$2 will run again"
+		exit 0
+		;;
+	--*)
+		die "unknown option: $1"
+		;;
+	*)
+		is_step "$1" || die "not a step: $1"
+		run_step "$1"
+		;;
+	esac
+	shift
+done
+
+exit 0
