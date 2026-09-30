@@ -13,7 +13,7 @@
 # that is not a thing somebody can do by pressing return too many times.
 
 need_root
-need_cmd chpasswd 'the base/chpasswd port'
+need_cmd flxpasswd 'the base/flxpasswd port'
 
 [ -f /etc/shadow ] || die 'there is no /etc/shadow, so there is no root account to set'
 
@@ -38,15 +38,23 @@ again=$(ask 'Root password again' '')
 [ "$pw" = "$again" ] || die 'the two passwords did not match'
 
 info 'setting the root password'
-# chpasswd reads user:password on stdin.  The password is not on the command
-# line, where any process could read it out of ps.
-printf 'root:%s\n' "$pw" | chpasswd || die 'chpasswd refused the password'
+# The password goes in on stdin, not argv: anything in argv is visible to
+# every process on the machine through ps.  -e is stdin mode, -r is the
+# minimum length, which this step has already asked about.
+if ! printf 'root:%s\n' "$pw" | flxpasswd -e -r; then
+	die 'flxpasswd refused the password'
+fi
 pw=''
 again=''
 
-# A locked account is worse than a weak one to leave behind silently.
-if awk -F: '$1 == "root" && $2 == "" { found = 1 } END { exit !found }' /etc/shadow; then
-	die 'the root password is still empty after chpasswd. Refusing to continue.'
-fi
+# flxpasswd refuses an empty hash, but verify anyway rather than trust it: a
+# passwordless root account is a remote shell, and this is the last point
+# before the installer reports success.
+empty=$(awk -F: '$1 == "root" { print $2 }' /etc/shadow)
+case $empty in
+''|!*|'*')
+	die "the root password is not set after flxpasswd (field is '$empty'). Refusing to continue."
+	;;
+esac
 
 ok 'root password set'
