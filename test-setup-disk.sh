@@ -122,6 +122,14 @@ out=$( printf '' | sh -c "PATH=$ROOTFS/sbin:/usr/bin:/bin; . $UI; need_cmd flxpa
 contains 'a present command passes' "$out" 'rc=0'
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
-printf '\n%s\n' 'Not covered here, and untested: mkfs, the system copy, the'
-printf '%s\n' 'bootloader and fstab.  Those need a real block device and root.'
+cat <<'NOTE'
+
+This suite is the conversation: the geometry, the confirmations, the guards, and
+that a dry run touches nothing.  The commands a real run executes -- flxpart
+writing a table, mkfs.fat, mkfs.ext4, blkid, the copy, the fstab -- are covered
+by test-destructive.sh, which runs them against image files with the rootfs's own
+binaries.  What neither suite can do is mount, so the copy crossing into a real
+filesystem and limine bios-install on the boot sectors are still untested: those
+need root and a block device.
+NOTE
 exit $([ "$fail" -eq 0 ]; echo $?)

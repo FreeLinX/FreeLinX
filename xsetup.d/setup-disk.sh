@@ -59,6 +59,11 @@ run() {
 	"$@"
 }
 
+# A scratch file for a tool's stderr, so a failure can be reported with what
+# the tool said rather than only that it failed.  Not in /tmp: this runs from a
+# read-only medium as often as from a live system, and /tmp may be either.
+TMPERR=${TMPERR:-$(mktemp "${TMPDIR:-/var/tmp}/xsetup.XXXXXX")}
+
 # The layout flxpart would produce, so a dry run can show the geometry without
 # writing a table.  On a real run this comes from the real partitioning.
 _layout=
@@ -247,22 +252,67 @@ mkdir -p /mnt/flx || die 'cannot create /mnt/flx'
 mount "$ROOT_DEV" /mnt/flx || die "cannot mount $ROOT_DEV at /mnt/flx"
 
 # Trap so an interrupted copy unmounts rather than leaving the filesystem
-# mounted over /mnt/flx with half a system on it.
+# mounted over /mnt/flx with half a system on it.  The ESP is unmounted first:
+# it is mounted inside /mnt/flx, so it has to go before the tree it lives in.
+# umount /mnt/flx with something still mounted underneath it fails, and the
+# result is a mount point nobody can clear without a reboot.
+ESP_MOUNT=
 cleanup() {
+	rm -f "$TMPERR" 2>/dev/null || :
+	if [ -n "$ESP_MOUNT" ]; then
+		umount "$ESP_MOUNT" 2>/dev/null || :
+		ESP_MOUNT=
+	fi
 	umount /mnt/flx 2>/dev/null || :
 }
 trap cleanup EXIT INT TERM
 
-# cp -a, not tar: the rootfs contains hard links (the zone files, 364 of them)
-# and device nodes, and a copy that drops either produces a system that is
-# subtly wrong rather than obviously broken.
-if ! cp -a "$SOURCE_ROOT/." /mnt/flx/ 2>/dev/null; then
-	# Retry without the noisy parts, and report which, because "cp failed"
-	# with no reason is the least useful error there is.
-	warn 'the plain copy reported errors; retrying and naming them'
-	cp -av "$SOURCE_ROOT/." /mnt/flx/ 2>&1 | grep -E 'cannot|failed|omitt' |
-		head -20 >&2
+# tar, not cp -a.  The comment this replaced had it exactly backwards.
+#
+# The rootfs carries hard links -- the zoneinfo tree, 364 of them -- and the
+# reason to keep them is that a system whose /usr/share/zoneinfo has 364 copies
+# instead of one inode per zone is subtly wrong rather than obviously broken.
+#
+# cp does not keep them.  The cp in this system is the NetBSD one, whose usage
+# is
+#
+#   usage: cp [-R [-H | -L | -P]] [-f | -i] [-alNpv] src target
+#
+# and its -a is -pPR: preserve mode, recursive, do not follow symlinks.  POSIX
+# never asked cp to preserve hard links and this one does not.  Measured, on the
+# binaries in this tree:
+#
+#   $ ln s/a s/b                       # same inode
+#   $ cp -a s/. d/ && ls -i d/a d/b
+#   113152                             <- different inodes
+#   $ tar -cf - s | tar -xpf - -C d2 && ls -i d2/s/a d2/s/b
+#   113157
+#   113157                             <- one inode, as it was
+#
+# tar is not merely no worse here, it is the tool for the job: it stores a
+# hard-linked file once and links the rest on the way out.  bsdtar comes from
+# base/libarchive and is staged as /bin/tar.
+need_cmd tar 'the base/libarchive port'
+
+# -p on extract keeps the modes and ownership, and --numeric-owner stops a
+# numeric uid in the archive from being looked up in the *installer's* passwd
+# and coming out as somebody else.  The kernel and initramfs go through the
+# stream as well, so nothing is read twice.
+if ! tar -C "$SOURCE_ROOT" --numeric-owner -cf - . |
+    tar -C /mnt/flx --numeric-owner -xpf - 2>"$TMPERR"; then
+	# Name what failed.  "the copy failed" with no reason is the least
+	# useful error there is, and bsdtar does say which path it was on.
+	warn 'the copy reported errors; naming them'
+	sed -n '1,20p' "$TMPERR" >&2
 	die 'the system could not be copied. The partition has been left mounted at /mnt/flx; unmount it before retrying.'
+fi
+if [ -s "$TMPERR" ]; then
+	# A non-empty error log with a zero exit is tar's way of saying it
+	# skipped something.  Skipping is a silent corruption if it is not said
+	# out loud, and the zone files are exactly the kind of thing that goes
+	# missing quietly.
+	warn 'the copy finished but reported:'
+	sed -n '1,20p' "$TMPERR" >&2
 fi
 ok "system copied"
 
@@ -336,9 +386,23 @@ else
 fi
 
 if [ -f "$LIMDIR/BOOTX64.EFI" ]; then
+	# The ESP has to be mounted, or BOOTX64.EFI lands on the ext4 root at
+	# /boot/efi/EFI/BOOT where no firmware will ever look for it.  UEFI
+	# searches the FAT ESP for \EFI\BOOT\BOOTX64.EFI; it does not read
+	# ext4, and it does not read the root partition at all.  The file
+	# written before this was a UEFI boot target on nothing.
+	mkdir -p /mnt/flx/boot/efi
+	mount "$ESP_DEV" /mnt/flx/boot/efi ||
+		die "cannot mount the ESP $ESP_DEV at /mnt/flx/boot/efi.
+     Without it BOOTX64.EFI cannot be placed where the firmware looks for it,
+     and the installed system will not boot under UEFI."
+	ESP_MOUNT=/mnt/flx/boot/efi
 	mkdir -p /mnt/flx/boot/efi/EFI/BOOT
-	cp "$LIMDIR/BOOTX64.EFI" /mnt/flx/boot/efi/EFI/BOOT/ &&
-		ok 'BOOTX64.EFI placed on the ESP'
+	cp "$LIMDIR/BOOTX64.EFI" /mnt/flx/boot/efi/EFI/BOOT/ ||
+		die 'could not place BOOTX64.EFI on the ESP.'
+	umount /mnt/flx/boot/efi || die 'could not unmount the ESP'
+	ESP_MOUNT=
+	ok 'BOOTX64.EFI placed on the ESP'
 else
 	warn "$LIMDIR/BOOTX64.EFI is missing, so there is no UEFI boot target."
 fi
