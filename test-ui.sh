@@ -2,6 +2,7 @@
 # Exercises lib/ui.sh, in particular the EOF case that used to hang.
 set -u
 cd "$(dirname "$0")" || exit 1
+ROOTFS=${ROOTFS:-$(cd .. && pwd)/src/rootfs}
 . lib/ui.sh
 
 pass=0
@@ -404,6 +405,57 @@ _yn=$(printf '\n' | sh -c '. lib/ui.sh; ask_yes Q n 2>&1' | grep -o '\[y/N\]')
 ok_is 'default n shows [y/N]' "$_yn" '[y/N]'
 _yy=$(printf '\n' | sh -c '. lib/ui.sh; ask_yes Q y 2>&1' | grep -o '\[Y/n\]')
 ok_is 'default y shows [Y/n]' "$_yy" '[Y/n]'
+
+echo '== the flags the installer passes are the flags the tools accept =='
+# setup-user passed -m to flxuseradd, which has no -m.  The step then failed on
+# every install with the usage printed above the error, so what the operator
+# saw was an account that was not created.  A flag list is read off the tool's
+# own strings rather than from the source of the step, so it cannot drift.
+_USR=$ROOTFS/bin/flxuseradd
+if [ -x "$_USR" ]; then
+	_flist=$(grep -oE 'flxuseradd -[a-zA-Z]+' xsetup.d/setup-user.sh |
+		cut -d' ' -f2 | sort -u)
+	for _f in $_flist; do
+		# $_f already carries its own dash - it came from cutting the word
+		# "flxuseradd" off "flxuseradd -d" - so the pattern is "$_f " and not
+		# "-$_f ". The second one searches for "--d", which appears in
+		# nothing, so the check reported both options missing while the step
+		# was correct.  A test that cannot find the thing it is looking for
+		# says it is not there, which is the worst failure mode there is:
+		# it reads as the bug it exists to catch.
+		#
+		# A yes/no test rather than a count, too: grep -c counts matching
+		# *lines*, and several options share one usage line.
+		if strings "$_USR" 2>/dev/null | grep -q -- "$_f "; then
+			_ok=yes
+		else
+			_ok=no
+		fi
+		if [ "$_ok" = yes ]; then
+			pass=$((pass + 1)); printf '  ok   flxuseradd takes %s\n' "$_f"
+		else
+			fail=$((fail + 1))
+			printf '  FAIL flxuseradd has no %s; the step would die\n' "$_f"
+		fi
+	done
+else
+	printf '  (no %s, skipping)\n' "$_USR"
+fi
+
+echo '== a user name that is typed in upper case is folded, not refused =='
+# The rule used to allow only a-z0-9_- and die on the rest, so typing Kanan
+# ended the installer.  Lower case is right to store and wrong to insist on.
+_fold() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
+ok_is 'Kanan folds to lower case' "$(_fold Kanan)" 'kanan'
+ok_is 'mixed case folds'          "$(_fold KanAnMajidzada)" 'kananmajidzada'
+ok_is 'lower case is unchanged'   "$(_fold kanan)" 'kanan'
+for _bad in '' 'has space' 'has/slash' 'a!b'; do
+	_good=no
+	case $_bad in
+	''|*[!a-zA-Z0-9_-]*) _good=yes ;;
+	esac
+	ok_is "'$_bad' is still refused" "$_good" 'yes'
+done
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

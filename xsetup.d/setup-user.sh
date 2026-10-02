@@ -27,11 +27,30 @@ if ! ask_yes 'Create a user account' y; then
 fi
 
 name=$(ask 'Username' '')
+# Upper case is accepted and folded to lower case, rather than refused.
+#
+# The rule used to allow only a-z0-9_- and die on anything else, so typing
+# Kanan ended the installer with
+#
+#     error: 'Kanan' is not a usable username: lower case letters, digits,
+#            dash and underscore
+#
+# Lower case is the right thing to *store* - /etc/passwd lookups are case
+# sensitive, so a mixed-case name is a trap for whoever comes next - but it is
+# not a reason to throw away what somebody typed and end the install over.  The
+# name is folded and the fold is said out loud, so nobody ends up wondering why
+# the account they typed is not the one they got.
 case $name in
-''|*[!a-z_]*[a-z_]*|*[!a-z0-9_-]*)
-	die "'$name' is not a usable username: lower case letters, digits, dash and underscore"
+''|*[!a-zA-Z0-9_-]*)
+	die "'$name' is not a usable username: letters, digits, dash and underscore"
 	;;
 esac
+
+folded=$(printf '%s' "$name" | tr 'A-Z' 'a-z')
+if [ "$folded" != "$name" ]; then
+	say "  $name -> $folded"
+	name=$folded
+fi
 
 if awk -F: -v u="$name" '$1 == u { found = 1 } END { exit !found }' /etc/passwd; then
 	die "the account $name already exists"
@@ -42,8 +61,15 @@ need_cmd flxpasswd 'the base/flxpasswd port'
 
 info "creating $name"
 
-# -m makes the home directory, -G adds to a group, -s sets the shell.
-flxuseradd -m -G wheel -s /bin/sh "$name" ||
+# -d gives the home directory.  It used to be -m, which flxuseradd does not
+# have, and the whole step failed on every install with its usage printed:
+#
+#     flxuseradd: unrecognized option: m
+#     usage: flxuseradd -u NAME [-g GID] [-G GROUPS] [-d HOME] [-s SHELL]
+#
+# The usage is on two lines above the error and reads like a paragraph, so it
+# scrolls past; what the operator saw was an account that was not created.
+flxuseradd -d "/home/$name" -G wheel -s /bin/sh -u "$name" ||
 	die "flxuseradd could not create $name"
 
 pw=$(ask "Password for $name" '')
