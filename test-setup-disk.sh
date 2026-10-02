@@ -49,17 +49,35 @@ contains() {
 DISK=$TMP/disk.img
 truncate -s 4G "$DISK"
 
-# run_step ANSWERS - feed ANSWERS to the step, in a scratch cwd, with the
-# image's own tools on PATH and a dry run forced.
+# A stand-in for the medium the installer is running from.  It is not optional
+# any more: the ESP is sized from the boot chain before the disk is partitioned,
+# because a partition table cannot be resized afterwards and a chain that does
+# not fit produces a disk with no system on it.
+#
+# The sizes are the real ones rather than empty files, because the point of the
+# measurement is that it comes out right for a real payload.  A 218 MB initramfs
+# is what FreeLinX actually ships; 1 MiB would let a broken measurement pass.
+MEDIUM=$TMP/medium
+mkdir -p "$MEDIUM/boot" "$MEDIUM/usr/share/limine"
+truncate -s 12854400 "$MEDIUM/boot/bzImage"
+truncate -s 218042373 "$MEDIUM/boot/initramfs.img.gz"
+truncate -s 330888 "$MEDIUM/usr/share/limine/limine-bios.sys"
+truncate -s 376832 "$MEDIUM/usr/share/limine/BOOTX64.EFI"
+
+# run_step ANSWERS [MEDIUM] - feed ANSWERS to the step, in a scratch cwd, with
+# the image's own tools on PATH, a dry run forced, and MEDIUM (or the default
+# stub) standing in for the medium the installer is running from.
 run_step() {
 	( cd "$TMP" || exit 1
 	  PATH=$ROOTFS/sbin:$ROOTFS/bin:$ROOTFS/usr/bin:$ROOTFS/usr/sbin:/usr/bin:/bin
 	  export PATH
 	  XSETUP_DRY_RUN=1
 	  XSETUP_DISK_OVERRIDE=$DISK
+	  XSETUP_MEDIUM=${2:-$MEDIUM}
 	  FLXPART=$FLXPART
 	  XSETUP_STATE_FILE=$TMP/mode
-	  export XSETUP_DRY_RUN XSETUP_DISK_OVERRIDE FLXPART XSETUP_STATE_FILE
+	  export XSETUP_DRY_RUN XSETUP_DISK_OVERRIDE XSETUP_MEDIUM FLXPART \
+		XSETUP_STATE_FILE
 	  printf '%s' "$1" | sh "$STEP" 2>&1
 	)
 }
@@ -94,6 +112,46 @@ contains 'says dry run' "$out" 'dry run'
 contains 'names the EFI system partition' "$out" 'EFI system'
 contains 'names the BIOS boot partition' "$out" 'BIOS boot'
 contains 'resolves the root device' "$out" 'root'
+ok 'the disk is still untouched' "$(nonzero)" '0'
+
+echo '== the boot partition is sized for the boot chain =='
+# The chain has to be readable by Limine's BIOS stage, which reads FAT and NTFS
+# and no ext2/3/4, so the chain goes on the FAT ESP and the ESP has to be big
+# enough for it.  The partition table is written before the copy, so this has to
+# be right the first time: there is no resizing afterwards.
+#
+# 12854400 + 218042373 + 330888 + 4096 = 231231757 bytes, which is 220 MiB, so
+# the floor of 256 applies and 252 is never reached.
+out=$(run_step '2
+2
+yes
+')
+contains 'reports the chain size' "$out" 'boot chain  220 MiB'
+contains 'sizes the ESP from it' "$out" 'ESP         256 MiB'
+
+# And a chain too big for the floor gets an ESP sized to hold it.  400 MiB of
+# initramfs needs 400 + 32, not 256: an ESP that is a hair too small fails at the
+# last file with the disk half written.
+BIGMED=$TMP/medium-big
+mkdir -p "$BIGMED/boot"
+truncate -s 12854400 "$BIGMED/boot/bzImage"
+truncate -s 419430400 "$BIGMED/boot/initramfs.img.gz"
+out=$(run_step '2
+2
+yes
+' "$BIGMED")
+contains 'reports the larger chain' "$out" 'boot chain  412 MiB'
+contains 'grows the ESP past the floor' "$out" 'ESP         444 MiB'
+
+# A missing medium is refused before the disk is touched, not after.  The step
+# used to find the medium when it got to the boot section, which is after it has
+# already partitioned and formatted the disk.
+out=$(run_step '2
+2
+yes
+' "$TMP/no-such-medium")
+contains 'refuses without a medium' "$out" 'cannot find the medium'
+contains 'says nothing was written' "$out" 'Nothing has been written'
 ok 'the disk is still untouched' "$(nonzero)" '0'
 
 echo '== declining the confirmation changes nothing =='

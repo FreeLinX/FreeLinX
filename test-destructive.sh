@@ -149,9 +149,18 @@ part_index() {
 	sed -n "s/^FLX_PART\([0-9]*\)_TYPE=$1\$/\1/p" "$TMP/layout.txt" | head -1
 }
 
-GUID_ESP=28732AC1-1F81-D211-4BBA-A0A0C93EC93B
-GUID_BIOSBOOT=94CE8649-9964-6E6F-744E-65ED45464964
-GUID_ROOT=4F68EE06-F53D-D74B-1193-47F89EF89EF8
+# The three type GUIDs as flxpart prints them, which is the mixed-endian byte
+# order they are stored in rather than the canonical reading of them.  They are
+# the same three constants setup-disk.sh matches on, and the same three
+# ports/sysutils/flxpart/test-flxpart.sh checks byte for byte.
+#
+# These were wrong here for a long time - a suite that parses layout.txt for
+# GUIDs that are not the ones in the table finds nothing and calls the
+# partitioning broken, which is a worse failure than the one it was hiding,
+# because it sends you to flxpart instead of to the constants.
+GUID_ESP=28732AC1-1FF8-D211-BA4B-00A0C93EC93B
+GUID_BIOSBOOT=48616821-4964-6F6E-744E-656564454649
+GUID_ROOT=AF3DC60F-8384-7247-8E79-3D69D8477DE4
 
 esp_i=$(part_index "$GUID_ESP")
 bios_i=$(part_index "$GUID_BIOSBOOT")
@@ -418,34 +427,71 @@ else
 fi
 
 # --- 7. the ESP has to be mounted -------------------------------------------
-section 'xsetup mounts the ESP before it places BOOTX64.EFI'
+section 'xsetup mounts the ESP before it places anything on it'
 
-# This is a source-level guard, and it is here because the bug was real and the
-# dry run could not see it.  UEFI searches the FAT ESP for \EFI\BOOT\BOOTX64.EFI;
-# it does not read ext4 and it does not read the root partition.  xsetup used to
+# A source-level guard, and it is here because the bug was real and the dry run
+# could not see it.  UEFI searches the FAT ESP for \EFI\BOOT\BOOTX64.EFI; it does
+# not read ext4 and it does not read the root partition.  xsetup used to
 # mkdir -p /mnt/flx/boot/efi/EFI/BOOT and copy the file straight into it, which
 # put the UEFI boot target on the ext4 root where nothing would ever find it, and
 # the install reported success.
+#
+# It matters more than it did.  The boot chain - limine-bios.sys, the menu, the
+# kernel and the initramfs - all goes on the ESP too, and Limine's BIOS stage
+# reads FAT and NTFS and no ext2/3/4, so anything left on the ext4 root is not
+# merely misplaced but unreachable: the machine stops before the kernel with
+# "Stage 3 file not found!" and the install still reports success.
 if [ ! -f "$SETUP_DISK" ]; then
 	no 'setup-disk.sh is present' "no such file: $SETUP_DISK"
 else
-	if grep -q 'mount "\$ESP_DEV"' "$SETUP_DISK"; then
-		ok 'xsetup mounts $ESP_DEV'
+	# The mount, matched on the form the step actually uses.  A pattern of
+	# 'mount "$ESP_DEV"' does not match 'mount -t vfat "$ESP_DEV" "$ESP_DIR"',
+	# and a test that fails on a correct change is worse than no test: it
+	# sends the next person to add a second, redundant mount.
+	#
+	# -t vfat is part of the guard, not decoration.  This system's mount(8)
+	# does not probe an unspecified filesystem, so a bare mount fails the same
+	# way a missing disk does.
+	if grep -q 'mount -t vfat "\$ESP_DEV"' "$SETUP_DISK"; then
+		ok 'xsetup mounts $ESP_DEV as vfat'
 	else
-		no 'xsetup mounts $ESP_DEV' \
+		no 'xsetup mounts $ESP_DEV as vfat' \
 			'BOOTX64.EFI is copied into /mnt/flx/boot/efi, which without a' \
 			'mount of $ESP_DEV is the ext4 root and not the ESP'
 	fi
 
-	# And it has to unmount it again, in the right order: the ESP is inside
-	# /mnt/flx, so umounting /mnt/flx with the ESP still mounted fails and
-	# leaves a mount point nobody can clear without a reboot.
-	if grep -q 'umount /mnt/flx/boot/efi' "$SETUP_DISK"; then
-		ok 'xsetup unmounts the ESP again'
+	# The ESP is mounted once, early, and unmounted by the cleanup trap in the
+	# right order - the ESP first, because it is inside /mnt/flx, so umounting
+	# /mnt/flx with the ESP still mounted fails and leaves a mount point nobody
+	# can clear without a reboot.
+	#
+	# So the guard is on the trap, not on a bare umount line.  The step used to
+	# mount the ESP for BOOTX64.EFI, umount it, and mount it again for the boot
+	# chain: two chances to fail for one filesystem, and a window where the
+	# bootloader files are on ext4 where Limine cannot read them.
+	if grep -q 'ESP_MOUNT=' "$SETUP_DISK" &&
+	   grep -q 'umount "\$ESP_MOUNT"' "$SETUP_DISK" &&
+	   grep -q 'umount /mnt/flx' "$SETUP_DISK"; then
+		ok 'xsetup unmounts the ESP before /mnt/flx, from the cleanup trap'
 	else
-		no 'xsetup unmounts the ESP again' \
-			'leaving it mounted inside /mnt/flx makes umount /mnt/flx fail'
+		no 'xsetup unmounts the ESP before /mnt/flx, from the cleanup trap' \
+			'the ESP is inside /mnt/flx, so unmounting /mnt/flx with the ESP' \
+			'still mounted fails and leaves a mount point nobody can clear'
 	fi
+
+	# And it must mount it exactly once.  Two mounts and two unmounts of one
+	# FAT filesystem in one install is a way to lose it.
+	_n=$(grep -c 'mount -t vfat "\$ESP_DEV"' "$SETUP_DISK")
+	_ng=$(
+		awk '/^[[:space:]]*mount -t vfat "\$ESP_DEV"/ { n++ } END { print n + 0 }' \
+			"$SETUP_DISK"
+	)
+	if [ "$_ng" = 1 ]; then
+		ok 'xsetup mounts the ESP exactly once'
+	else
+		no 'xsetup mounts the ESP exactly once' "found $_ng mount lines"
+	fi
+	unset _n _ng
 
 	if grep -q 'ESP_MOUNT' "$SETUP_DISK"; then
 		ok 'the cleanup trap knows about the ESP mount'
