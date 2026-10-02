@@ -96,7 +96,27 @@ ask_yes() {
 			return 1
 		fi
 		case $_reply in
-		''|y|Y|yes|Yes|YES) return 0 ;;
+		'')
+			# An empty answer takes the default the caller asked for, which
+			# is the whole reason the default is printed in the prompt.
+			#
+			# It used to be grouped with yes whatever the default was, so
+			# every prompt reading [y/N] answered yes when Enter was pressed,
+			# and the operator was then asked a question they had declined:
+			#
+			#     Use an HTTP proxy for downloads [[y/N]]:
+			#     Proxy host:
+			#     error: no proxy host given
+			#
+			# Five of the eight ask_yes calls in this tree pass n, so that was
+			# the answer to five of them - and one of them then died on the
+			# question it had been told not to answer.
+			case $_default in
+			y|Y) return 0 ;;
+			*)   return 1 ;;
+			esac
+			;;
+		y|Y|yes|Yes|YES) return 0 ;;
 		n|N|no|No|NO)     return 1 ;;
 		esac
 		warn "answer y or n"

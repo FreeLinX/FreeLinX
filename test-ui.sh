@@ -378,5 +378,32 @@ for _f in xsetup.d/*.sh; do
 done
 ok_is 'no step finishes with exit 0' "$_bad" '0'
 
+echo '== ask_yes: Enter takes the default, not always yes =='
+# ask_yes printed the caller's default in its prompt and then ignored it: an
+# empty answer was grouped with yes.  Every prompt reading [y/N] therefore
+# answered yes to Enter, and the operator was asked a question they had just
+# declined:
+#
+#     Use an HTTP proxy for downloads [[y/N]]:
+#     Proxy host:
+#
+# Five of the eight ask_yes calls in the installer pass n, so that was the answer
+# to five of them.
+_ay() { printf '%s\n' "$2" | sh -c ". lib/ui.sh; ask_yes Q $1 >/dev/null 2>&1" \
+	&& echo yes || echo no; }
+ok_is 'default n, Enter'   "$(_ay n '')"  'no'
+ok_is 'default n, n'       "$(_ay n n)"   'no'
+ok_is 'default n, y'       "$(_ay n y)"   'yes'
+ok_is 'default y, Enter'   "$(_ay y '')"  'yes'
+ok_is 'default y, n'       "$(_ay y n)"   'no'
+
+echo '== ask_yes: the hint matches the default =='
+# The hint is read out of the prompt, because a prompt that says [Y/n] and
+# answers no on Enter is worse than one that says nothing.
+_yn=$(printf '\n' | sh -c '. lib/ui.sh; ask_yes Q n 2>&1' | grep -o '\[y/N\]')
+ok_is 'default n shows [y/N]' "$_yn" '[y/N]'
+_yy=$(printf '\n' | sh -c '. lib/ui.sh; ask_yes Q y 2>&1' | grep -o '\[Y/n\]')
+ok_is 'default y shows [Y/n]' "$_yy" '[Y/n]'
+
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

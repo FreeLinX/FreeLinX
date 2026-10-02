@@ -35,7 +35,22 @@ if ! ask_yes 'Use an HTTP proxy for downloads' n; then
 fi
 
 host=$(ask 'Proxy host' '')
-[ -n "$host" ] || die 'no proxy host given'
+# An empty host after saying yes is a changed mind, not a failure.  It used to
+# die, which ended the installer with steps 7 to 13 never run, and the operator
+# was left at the shell having answered a question they thought they had skipped:
+#
+#     Use an HTTP proxy for downloads [[y/N]]:
+#     Proxy host:
+#     error: no proxy host given
+#
+# Treating it as "no proxy" is what they meant, and it leaves them where they
+# were rather than at a prompt with no route forward.
+if [ -z "$host" ]; then
+	: >/etc/proxy.conf
+	rm -f /etc/profile.d/proxy.sh
+	ok 'no proxy configured'
+	return 0
+fi
 
 port=$(ask 'Proxy port' '8080')
 
