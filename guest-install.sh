@@ -28,6 +28,35 @@ set -u
 DEV=${FLX_TEST_DISK:-/dev/vda}
 MNT=/mnt/flx
 
+# Which mode to install in.  sys is the default because that is the install that
+# has to work; data is the other one, and it is a different install on purpose -
+# see the data-mode section near the end.
+#
+# Read from the environment rather than hardcoded, so the same guest script can
+# check both against the same disk.  A missing value falls back to sys rather than
+# to an empty string, which would match no case and quietly install nothing.
+MODE=${FLX_TEST_MODE:-sys}
+case $MODE in
+sys|data) ;;
+*)
+	printf 'no 0 FLX_TEST_MODE is %s; it must be sys or data\n' "$MODE"
+	printf 'summary passed=0 failed=1\n'
+	printf 'FLX-TEST-DONE\n'
+	exit 1
+	;;
+esac
+
+# The menu numbers from 1 and the real choices come after 'run from RAM' (1), so
+# sys is the second choice and data the third.  Computed here rather than written
+# at the point of use, so the two places that answer the menu cannot disagree: a
+# menu answered with the wrong number selects the wrong install and the installer
+# reports success.
+if [ "$MODE" = sys ]; then
+	MODE_ANSWER=2
+else
+	MODE_ANSWER=3
+fi
+
 say() { printf '%s\n' "$*"; }
 
 n=0
@@ -116,12 +145,11 @@ say "partition table before: ${BEFORE:-none}"
 # too when it is given `-`; here sh runs a file and reads answers from stdin.
 say '--- running setup-disk ---'
 # Both menus number from 1 with 'leave it alone' / 'run from RAM' first, so the
-# real choices are 2.  The third answer is the typed confirmation of the erase.
-if sh "$MNTMED/installer/xsetup.d/setup-disk.sh" <<'ANSWERS' 2>&1
-2
-2
-yes
-ANSWERS
+# disk is always the second choice.  $MODE_ANSWER is the mode; the last answer is
+# the typed confirmation of the erase.
+printf '%s\n%s\nyes\n' "$MODE_ANSWER" 2 >/tmp/flx-answers
+say "mode: $MODE (menu answer $MODE_ANSWER)"
+if sh "$MNTMED/installer/xsetup.d/setup-disk.sh" </tmp/flx-answers 2>&1
 then
 	say 'setup-disk exited 0'
 else
@@ -445,6 +473,12 @@ while [ "$i" -le 16 ]; do
 	[ "$_raw" = 00000000000000000000000000000000 ] && break
 	_canon=$(guid_canon "$DEV" "$_off")
 	say "  GPT partition $i type $_canon"
+	# Written out for the data-mode section to read with its own eyes.  It
+	# re-reads the table rather than reusing esp_idx and the rest, because a
+	# check that shares its reader with the thing it checks cannot disagree
+	# with it - and "the data disk has no ESP partition" has to be able to
+	# fail.
+	printf 'partition %s type %s\n' "$i" "$_canon" >>/tmp/flx-gpt.txt
 	case $_canon in
 	C12A7328-F81F-11D2-BA4B-00A0C93EC93B) esp_idx=$i ;;
 	21686148-6449-6E6F-744E-656564454649) bios_idx=$i ;;
@@ -556,6 +590,107 @@ else
 fi
 umount /mnt/esp
 umount /mnt/root
+
+# --- data mode --------------------------------------------------------------
+#
+# A separate set of checks rather than a branch inside the one above, because the
+# two modes cannot both be verified against one disk: each erases it.  The host
+# runs this script twice, once per mode, on a fresh image each time.
+#
+# What is being checked is the property that makes data mode worth having at all
+# - the disk it makes is /var, and nothing else.  Every check here would have
+# passed on the bug this replaces: it laid out a full boot chain, copied the
+# entire system onto the disk, wrote a bootloader, printed
+#
+#   ok  the system is installed.
+#
+# and exited 0.  The disk it made *was* a working install, so nothing about
+# reading that disk back could have shown the mode was wrong.  What shows it is
+# counting the partitions and looking for a kernel.
+if [ "$MODE" = data ]; then
+	say ''
+	say '--- data mode ---'
+
+	# One partition.  Two would mean a boot partition crept back in, which is
+	# the thing this layout exists to avoid.
+	nparts=$(ls /dev/vda[0-9]* 2>/dev/null | wc -l)
+	check 'the data disk has exactly one partition' "$nparts" '1'
+
+	# No ESP and no BIOS boot partition, matched on the type GUIDs rather than
+	# on a name or a position.  A disk that claims to boot and cannot is worse
+	# than a disk that plainly does not, and a partition table promising
+	# something the disk cannot deliver is the claim: an unformatted partition
+	# carrying the ESP type GUID is exactly that.
+	if [ -f /tmp/flx-gpt.txt ]; then
+		if grep -qi 'C12A7328-F81F-11D2-BA4B-00A0C93EC93B' /tmp/flx-gpt.txt; then
+			fail 'the data disk has an EFI system partition, so it claims to boot'
+		else
+			pass 'the data disk has no EFI system partition'
+		fi
+		if grep -qi '21686148-6449-6E6F-744E-656564454649' /tmp/flx-gpt.txt; then
+			fail 'the data disk has a BIOS boot partition, so it claims to boot'
+		else
+			pass 'the data disk has no BIOS boot partition'
+		fi
+		if grep -qi '0FC63DAF-8483-4772-8E79-3D69D8477DE4' /tmp/flx-gpt.txt; then
+			pass 'the data partition is a Linux filesystem partition'
+		else
+			fail 'no partition on the data disk is a Linux filesystem partition'
+		fi
+	else
+		fail 'the partition table could not be read, so its contents are unknown'
+	fi
+
+	# The label is the whole contract with /init, which mounts a filesystem
+	# called FREELINUX_VAR at /var.  Read back with blkid rather than believed,
+	# because the bug this replaces also reported success.
+	DPART=$(ls /dev/vda[0-9]* 2>/dev/null | head -1)
+	if [ -z "$DPART" ]; then
+		fail 'there is no data partition to read the label from'
+	else
+		say "  data partition: $DPART"
+		dlabel=$(blkid -s LABEL -o value "$DPART" 2>/dev/null)
+		check 'the data filesystem is labelled FREELINUX_VAR' \
+			"$dlabel" 'FREELINUX_VAR'
+
+		# And it has to be a filesystem this kernel can mount, or the label
+		# is on something /init will fail to mount.
+		if mkdir -p /mnt/data && mount -t ext4 "$DPART" /mnt/data 2>/dev/null; then
+			pass 'the data filesystem mounts as ext4'
+			# The four trees setup-lbu, setup-apkcache and the package
+			# tools use.  An empty /var makes each of them take its
+			# first-run path on a system that has already been installed.
+			for d in lib/xpkg lib/lbu cache log; do
+				if [ -d "/mnt/data/$d" ]; then
+					pass "/var/$d exists on the data filesystem"
+				else
+					fail "/var/$d is missing from the data filesystem"
+				fi
+			done
+			# Nothing installed.  This is the check that the mode does what
+			# it says and is not a sys install under another name.
+			if [ -e /mnt/data/sbin/init ] || [ -e /mnt/data/usr/bin/xsetup ]; then
+				fail 'the data filesystem has a system on it; data mode installed something'
+			else
+				pass 'the data filesystem has no system on it'
+			fi
+			if [ -e /mnt/data/boot/bzImage ]; then
+				fail 'the data filesystem has a kernel on it, so the disk claims to boot'
+			else
+				pass 'the data filesystem has no kernel on it'
+			fi
+			# A note for a human, which the installer claims to write.
+			if [ -f /mnt/data/fstab.note ]; then
+				pass 'the disk says what it is for'
+			else
+				fail 'there is no note on the disk saying what it is for'
+			fi
+			umount /mnt/data
+		else
+			fail 'the data filesystem does not mount as ext4'
+		fi
+	fi
+fi
 
 say ''
 say "passed: $passed  failed: $failed"

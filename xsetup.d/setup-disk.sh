@@ -164,6 +164,166 @@ warn "about to erase $dev, and everything on it"
 warn "$mode mode reformats it: the previous contents are not recoverable."
 confirm "This erases $dev" || die 'nothing was changed'
 
+# --- layout vocabulary ------------------------------------------------------
+
+GUID_ESP=28732AC1-1FF8-D211-BA4B-00A0C93EC93B
+GUID_BIOSBOOT=48616821-4964-6F6E-744E-656564454649
+GUID_ROOT=AF3DC60F-8384-7247-8E79-3D69D8477DE4
+
+# part_index GUID - the number of the first partition of that type, matched on
+# the type GUID rather than on its name or its position.  See the note above the
+# GUIDs: matching on a name is how this step once looked for a partition called
+# "ESP" and did not find the one called "EFI system".
+part_index() {
+	printf '%s\n' "$layout" |
+		sed -n "s/^FLX_PART\([0-9]*\)_TYPE=$1\$/\1/p" | head -1
+}
+
+# partdev DEVICE INDEX - the device node for that partition.
+#
+# /dev/sda + 1 -> /dev/sda1.  Built here rather than assumed, because nvme and
+# mmc put a "p" in front of the number.
+partdev() {
+	_p=$1
+	_i=$2
+	case $_p in
+	*/nvme?n*|*/mmcblk*|*/loop*) printf '%sp%s\n' "$_p" "$_i" ;;
+	*) printf '%s%s\n' "$_p" "$_i" ;;
+	esac
+}
+
+# --- data mode -------------------------------------------------------------
+
+# Written out here, before anything touches the disk, because it is a different
+# job rather than a variation on the same one.
+#
+# sys mode lays out a boot chain and a root filesystem and copies the system
+# onto the disk, and the disk then boots.  data mode lays out one filesystem and
+# copies nothing: the system keeps running from RAM, out of the initramfs it was
+# booted from, and the disk is only a place for /var to live.  /var is where the
+# things that must outlive a reboot go - /var/lib/xpkg the package database,
+# /var/lib/lbu the local overlay, /var/log the logs, /var/cache the package
+# cache - so one filesystem with those four trees on it is the whole of it.
+#
+# Nothing is installed onto the disk and no bootloader is written, because there
+# is nothing on the disk to boot: the kernel and the initramfs are on the medium,
+# and every boot starts from the medium again.  That is what the mode is for, and
+# it is why it needs no ESP and no BIOS boot partition.  Asking for one and
+# leaving it empty would give a disk a partition table that says it boots when
+# it does not, which is the exact failure this step is being rewritten to stop.
+install_data() {
+	need_cmd flxpart 'the sysutils/flxpart port'
+	need_cmd mkfs.ext4 'the sysutils/e2fsprogs port'
+
+	info "partitioning $dev for data"
+	if [ "$DRY" -eq 1 ]; then
+		# A dry run partitions nothing, so the layout it reports is the one
+		# flxpart computes from the device size without writing.  The real
+		# numbers come from a real table, and a dry run says so rather than
+		# inventing LBAs.
+		layout=$(flxpart --create-data --dry-run "$dev") ||
+			die "flxpart could not compute a data layout for $dev"
+		say "  (dry run: nothing has been written to $dev)"
+	else
+		layout=$(flxpart --create-data "$dev") ||
+			die "flxpart could not partition $dev"
+	fi
+
+	data_i=$(printf '%s\n' "$layout" |
+		sed -n "s/^FLX_PART\([0-9]*\)_TYPE=$GUID_ROOT\$/\1/p" | head -1)
+	[ -n "$data_i" ] || die "flxpart did not report a data partition.
+     Its output said:
+$layout"
+
+	VAR_DEV=$(partdev "$dev" "$data_i")
+	say "  data         $VAR_DEV"
+
+	# The label is the whole contract between this step and the boot code.
+	# /init looks for a filesystem called FREELINX_VAR and mounts it at /var,
+	# so a filesystem with any other name - or with none - is not found, and
+	# the system boots with an empty /var that looks exactly like it worked.
+	if [ "$DRY" -eq 1 ]; then
+		say "  would run: mkfs.ext4 -q -L FREELINX_VAR $VAR_DEV"
+		say "  would create: /var/lib/xpkg /var/lib/lbu /var/cache /var/log"
+		say "  would write: the filesystem UUID, as a note on the disk"
+		ok 'data filesystem would be created on '"$VAR_DEV"
+		say ''
+		say "  data         $VAR_DEV  (label FREELINX_VAR)"
+		say ''
+		say 'Nothing has been written to '"$dev"'.'
+		exit 0
+	fi
+
+	info "making an ext4 filesystem on $VAR_DEV"
+	mkfs.ext4 -q -L FREELINUX_VAR "$VAR_DEV" ||
+		die "mkfs.ext4 failed on $VAR_DEV"
+	ok 'data filesystem formatted and labelled FREELINUX_VAR'
+
+	# Written the same way fstab is written for a sys install: on the
+	# filesystem UUID, which does not move when a disk is added.
+	#
+	# Read after mkfs, not before: the UUID does not exist until the
+	# filesystem does, so reading it earlier returns nothing and the step
+	# fails on a disk it had just made correctly.
+	var_uuid=$(blkid -s UUID -o value "$VAR_DEV" 2>/dev/null || :)
+	[ -n "$var_uuid" ] ||
+		die "could not read the filesystem UUID for $VAR_DEV.
+     /init finds this filesystem by its label, but a UUID-keyed entry is
+     what a mounted system should have, and without it the entry would have
+     to name a /dev node that can change.
+     Nothing has been unmounted; the filesystem is on $VAR_DEV."
+
+	info 'seeding /var'
+	mkdir -p /mnt/flx || die 'cannot create /mnt/flx'
+	mount -t ext4 "$VAR_DEV" /mnt/flx ||
+		die "cannot mount $VAR_DEV at /mnt/flx as ext4"
+	# The four trees setup-lbu, setup-apkcache and the package tools use.  A
+	# filesystem that mounts but is empty makes every one of them take its
+	# "first run" path on a system that has already been installed, so they
+	# are created here, by the thing that knows what mode was chosen.
+	mkdir -p /mnt/flx/lib/xpkg /mnt/flx/lib/lbu \
+		/mnt/flx/cache /mnt/flx/log ||
+		die 'could not create the /var directories'
+
+	# A note for a human reading the disk, not a mount table: nothing reads
+	# it.  The system that uses this disk finds the filesystem by its label
+	# in /init, because that system runs from RAM and never reads an fstab.
+	# Written anyway, because a disk holding a FREELINUX_VAR filesystem with
+	# no record of what it is for is a disk somebody has to guess about.
+	{
+		printf '# Written by xsetup (data mode).\n'
+		printf '# This disk holds /var only. The system runs from RAM, out of the\n'
+		printf '# initramfs on the medium, and finds this filesystem by its label\n'
+		printf '# FREELINUX_VAR. Nothing mounts this file; it is here so that the\n'
+		printf '# disk says what it is.\n'
+		printf 'UUID=%s\t/var\text4\tdefaults,noatime\t0 2\n' "$var_uuid"
+	} >/mnt/flx/fstab.note
+	umount /mnt/flx || die "could not unmount $VAR_DEV"
+	ok '/var is ready'
+
+	printf '%s\n' data >"$MODE_FILE" 2>/dev/null || :
+
+	ok "data filesystem created on $VAR_DEV"
+	say ''
+	say "  data         $VAR_DEV  (label FREELINX_VAR)"
+	say ''
+	say 'The system is still running from RAM and will keep doing so. This disk'
+	say 'holds /var, so the package database, the local overlay, the logs and'
+	say 'the package cache survive a reboot.'
+	say ''
+	say 'Boot the medium again - the same way you just did - and /var comes'
+	say 'back. Nothing on this disk is bootable, and that is deliberate: there'
+	say 'is no kernel on it to boot.'
+	exit 0
+}
+
+# The mode is known and the disk is chosen and the erase is confirmed, so this
+# is the last point at which data mode can leave before sys mode has written a
+# root partition and copied the system onto it.
+if [ "$mode" = data ]; then
+	install_data
+fi
+
 # --- partitioning ----------------------------------------------------------
 
 # Where the system comes from.  The installer may be running from a mounted ISO
@@ -280,24 +440,22 @@ else
 		die "flxpart could not partition $dev"
 fi
 
-# Pull the partitions out of the reported layout, matched on their type GUID
-# rather than on their name or their position.  The name is for a human and the
-# order is flxpart's business; the type GUID is the one thing that says what a
-# partition actually is.  Matching on a name is how this step ended up looking
-# for a partition called "ESP" and not finding the one called "EFI system".
+# The layout flxpart just wrote, as it reports it.  Partitions are pulled out of
+# it by type GUID, which is the one thing that says what a partition actually is;
+# a name is for a human and an order is flxpart's business.  Matching on a name
+# is how this step once looked for a partition called "ESP" and did not find the
+# one called "EFI system".
+#
 # These are the type GUIDs as flxpart prints them, which is the mixed-endian
 # byte order they are stored in rather than the canonical reading of them: the
 # ESP type is 28732AC1-1F81-D211-4BBA-A0A0C93EC93B here and
 # C12A7328-F81F-11D2-BA4B-00A0C93EC93B in the UEFI specification.
-GUID_ESP=28732AC1-1FF8-D211-BA4B-00A0C93EC93B
-GUID_BIOSBOOT=48616821-4964-6F6E-744E-656564454649
-GUID_ROOT=AF3DC60F-8384-7247-8E79-3D69D8477DE4
-
-part_index() {
-	printf '%s\n' "$layout" |
-		sed -n "s/^FLX_PART\([0-9]*\)_TYPE=$1\$/\1/p" | head -1
-}
-
+#
+# GUID_ROOT is also the type of the data partition install_data makes.  That is
+# flxpart's decision and it is the right one: the data partition is a Linux
+# filesystem, and a FreeLinX-specific type GUID would make it unrecognised to
+# every other Linux tool on the machine.  What makes it the /var filesystem is
+# its label, which is why /init looks for the label and not for a type.
 esp_i=$(part_index "$GUID_ESP")
 bios_i=$(part_index "$GUID_BIOSBOOT")
 root_i=$(part_index "$GUID_ROOT")
@@ -308,17 +466,6 @@ $layout"
 [ -n "$root_i" ] || die "flxpart did not report a root partition.
      Its output said:
 $layout"
-
-# The partition device node: /dev/sda + 1 -> /dev/sda1.  Written here rather
-# than assumed, because nvme and mmc put a "p" in front of the number.
-partdev() {
-	_p=$1
-	_i=$2
-	case $_p in
-	*/nvme?n*|*/mmcblk*|*/loop*) printf '%sp%s\n' "$_p" "$_i" ;;
-	*) printf '%s%s\n' "$_p" "$_i" ;;
-	esac
-}
 
 ESP_DEV=$(partdev "$dev" "$esp_i")
 if [ -n "$bios_i" ]; then
@@ -712,22 +859,6 @@ fi
 
 cleanup
 trap - EXIT INT TERM
-
-# --- data mode -------------------------------------------------------------
-
-if [ "$mode" = data ]; then
-	# data mode is the same install with one thing changed: /var is a
-	# separate filesystem on the same disk, so state survives a reboot even
-	# though the system itself runs from RAM.  That means a second
-	# partition, which flxpart --create-standard has not made.
-	ok 'the system is installed.'
-	say ''
-	say 'data mode wants a second filesystem for /var so that state survives a'
-	say 'reboot, and flxpart --create-standard lays out only one root'
-	say 'partition. That is the next piece of work; run the installer again'
-	say 'and choose sys if you want a system that boots from this disk.'
-	exit 0
-fi
 
 printf '%s\n' "$(cat /mnt/flx/etc/xsetup-disk-mode 2>/dev/null || echo sys)" >"$DONE_FILE" 2>/dev/null || printf 'sys\n' >"$DONE_FILE"
 rm -f /mnt/flx 2>/dev/null || rmdir /mnt/flx 2>/dev/null || :

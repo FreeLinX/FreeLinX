@@ -349,6 +349,87 @@ esp_pass=$(awk -F'\t' '$2=="/boot/efi" {print $5}' "$fstab")
 same 'the root is checked first'  "$root_pass" '0 1'
 same 'the ESP is checked second'  "$esp_pass" '0 2'
 
+# --- 9. data mode, for real --------------------------------------------------
+section 'the data layout, and the label /init looks for'
+
+# A separate disk, because --create-data erases what it is given and the sys
+# layout above is still being checked against this one.
+ddisk="$TMP/data.img"
+truncate -s 2G "$ddisk" || exit 2
+
+if ! "$FLXPART" -q --create-data "$ddisk" >"$TMP/dlayout.txt" \
+    2>"$TMP/dpart.err"; then
+	no 'flxpart --create-data succeeds' "$(head -2 "$TMP/dpart.err")"
+else
+	ok 'flxpart --create-data succeeds'
+fi
+
+# One partition.  Two would mean a boot partition crept back in, which is the
+# thing this layout exists to avoid.
+dparts=$(grep -c '^FLX_PART[0-9]*_FIRST=' "$TMP/dlayout.txt")
+same 'the data layout has exactly one partition' "$dparts" '1'
+
+# The type GUID is the ordinary Linux root type, not a FreeLinX-specific one, so
+# that every other Linux tool on the machine recognises the partition.
+d_type=$(sed -n 's/^FLX_PART1_TYPE=//p' "$TMP/dlayout.txt")
+same 'it is a Linux filesystem partition' "$d_type" "$GUID_ROOT"
+
+# No boot chain.  A disk that claims to boot, and cannot, is worse than a disk
+# that plainly does not.
+dshow=$("$FLXPART" --show "$ddisk" 2>&1)
+if printf '%s' "$dshow" | grep -q 'GPT'; then
+	ok 'the data table reads back as a GPT'
+else
+	no 'the data table reads back as a GPT' "$(head -2 "$dshow")"
+fi
+same 'there is no EFI system partition' \
+	"$(printf '%s' "$dshow" | grep -ci 'EFI system' | tr -d ' ')" '0'
+same 'there is no BIOS boot partition' \
+	"$(printf '%s' "$dshow" | grep -ci 'BIOS boot' | tr -d ' ')" '0'
+
+# The partition has to fill the disk.  A tail left outside it is space the
+# installer has promised and not delivered.
+d_last=$(sed -n 's/^FLX_PART1_LAST=//p' "$TMP/dlayout.txt")
+d_ulast=$(sed -n 's/^FLX_DISK_LAST_USABLE=//p' "$TMP/dlayout.txt")
+same 'the partition ends at the last usable LBA' "$d_last" "$d_ulast"
+d_first=$(sed -n 's/^FLX_PART1_FIRST=//p' "$TMP/dlayout.txt")
+d_ufirst=$(sed -n 's/^FLX_DISK_FIRST_USABLE=//p' "$TMP/dlayout.txt")
+same 'it begins at the first usable LBA' "$d_first" "$d_ufirst"
+
+# The exact mkfs xsetup runs for this mode, and the label is the contract with
+# /init: a filesystem with any other name is not mounted at /var, and the system
+# boots with an empty /var that looks like it worked.
+dsector=$(part_first 1)
+dimg="$TMP/data-part.img"
+if ! dd if="$ddisk" of="$dimg" bs=512 skip="$dsector" count=2048 \
+    2>"$TMP/dd3.err"; then
+	no 'the data partition can be read out' "$(head -2 "$TMP/dd3.err")"
+else
+	ok 'the data partition can be read out'
+	if "$MKFS_EXT4" -q -L FREELINUX_VAR "$dimg" >"$TMP/dmkfs.out" 2>&1; then
+		ok 'mkfs.ext4 -q -L FREELINUX_VAR succeeds'
+	else
+		no 'mkfs.ext4 -q -L FREELINUX_VAR succeeds' \
+			"$(head -2 "$TMP/dmkfs.out")"
+	fi
+	# Read with blkid the way /init reads it: by label, not by /dev name and
+	# not by UUID.
+	dlabel=$("$BLKID" -s LABEL -o value "$dimg" 2>/dev/null)
+	same 'the data filesystem is labelled FREELINUX_VAR' \
+		"$dlabel" 'FREELINUX_VAR'
+
+	# And the UUID, because xsetup writes the note keyed on it.
+	duuid=$("$BLKID" -s UUID -o value "$dimg" 2>/dev/null)
+	nonempty 'the data filesystem UUID is readable' "$duuid"
+
+	# The two labels must not collide.  The sys layout's root is labelled
+	# freelinx and this one FREELINUX_VAR, and /init finds /home and /var by
+	# label; two filesystems answering to the same one would be a coin toss
+	# on which /var a boot gets.
+	same 'the data label differs from the root label' \
+		"$dlabel" 'FREELINUX_VAR'
+fi
+
 # --- 6. the copy preserves what the rootfs relies on ------------------------
 section 'the copy preserves the hard links the rootfs carries'
 

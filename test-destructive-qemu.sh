@@ -83,11 +83,48 @@ while [ $# -gt 0 ]; do
 	-n) BUILD=0 ;;
 	-v) VERBOSE=1 ;;
 	-K) KEEP=1 ;;
+	-m|--mode) MODE=$2; shift ;;
 	-h) sed -n '2,48p' "$0" | sed 's/^# \?//'; exit 0 ;;
 	*) die "unknown option: $1" ;;
 	esac
 	shift
 done
+
+# Which install to run.  sys is the install that has to work; data is a
+# different layout for a disk that holds state, and it is checked separately
+# because the two cannot be checked against one disk - each erases it.
+#
+# Assigned after the option loop, unconditionally.  It was assigned inside the
+# loop only, so `-M data` set it and then this line overwrote it with the
+# default - and the run then installed sys, passed all 31 of sys's checks, and
+# reported
+#
+#   passed: 31  failed: 0
+#
+# for a test that had been asked to do something else entirely.  Nothing in the
+# output said data; nothing said so was wrong either.  A default that silently
+# beats the option is worse than no default at all.
+#
+# So there is no unconditional assignment here, and the default is applied with
+# `${MODE+x}` - "is it set at all" - rather than `[ -z "$MODE" ]`.  That
+# distinction is the whole fix and it is easy to get wrong twice:
+#
+#   MODE=sys after the loop   overwrites whatever -m set, which is the bug
+#   MODE=    after the loop   the same bug: a bare assignment empties the
+#                             variable whatever it held, so -m data becomes ""
+#   [ -z "$MODE" ]            cannot tell "not given" from "given and empty",
+#                             so it defaults over a real answer
+#
+# `${MODE+x}` is set for an empty-but-given value and unset only when the
+# variable was never assigned, which is exactly the distinction wanted.
+if [ -z "${MODE+x}" ]; then
+	MODE=sys
+fi
+
+case $MODE in
+sys|data) ;;
+*) die "--mode must be sys or data, not '$MODE'" ;;
+esac
 
 PASS=0
 FAIL=0
@@ -145,12 +182,19 @@ say "  initramfs  $INITRD ($(wc -c <"$INITRD" | tr -d ' ') bytes)"
 step 'injecting the test as a runit service'
 ISTAGE=$WORK/inject
 mkdir -p "$ISTAGE/var/service/flx-dtest"
+# MODE is the host's and is substituted here; every other dollar in the body is
+# the guest's and is left alone, which is what the quotes below are for.
 cat >"$ISTAGE/var/service/flx-dtest/run" <<'RUNEOF'
 #!/bin/sh
 # Injected by test-destructive-qemu.sh.  Mounts the installer medium, runs the
 # destructive install test once, and then holds still: a service that exits is
 # restarted by runsvdir, which would run the installer a second time on a disk
 # it has already erased.
+# FLXHOSTMODE is the host's MODE, written into this script by the sed below.  It
+# is a separate variable from the one the guest installer reads so that the
+# substitution has one unambiguous target to replace.
+FLXHOSTMODE=sys
+MODE=$FLXHOSTMODE
 MNT=/cdrom
 mkdir -p "$MNT"
 
@@ -173,7 +217,7 @@ else
 	else
 		echo "flx-dtest: medium $mounted at $MNT"
 
-		# Wait for mdevd to publish the disk's partitions.
+		# Wait for the disk and its partition nodes.
 		#
 		# The partition nodes are created by the device manager from kernel
 		# uevents, so they appear a moment after boot rather than at it.  A
@@ -187,30 +231,66 @@ else
 		# filesystem drivers are built into this kernel and there is nothing
 		# to load.  So the nodes are waited for here, and the failure mode is
 		# named if they never turn up.
+		#
+		# The count waited for is the mode's, not a constant.  A data disk has
+		# exactly one partition and a sys install three, so waiting for vda3 on
+		# a disk that will only ever have vda1 is a wait that never ends and the
+		# installer never runs at all.
 		[ -x /sbin/mdevd-coldplug ] && /sbin/mdevd-coldplug >/dev/null 2>&1
+		if [ "$MODE" = sys ]; then
+			want_parts=3
+		else
+			want_parts=1
+		fi
 		_waited=0
 		while [ "$_waited" -lt 60 ]; do
-			if [ -b /dev/vda ] && [ -b /dev/vda1 ] && [ -b /dev/vda2 ] &&
-			   [ -b /dev/vda3 ]; then
-				echo "flx-dtest: /dev/vda and its 3 partitions are present"
+			[ -b /dev/vda ] || { _waited=$((_waited + 1)); sleep 1; continue; }
+			_found=0
+			_i=1
+			while [ "$_i" -le "$want_parts" ]; do
+				[ -b "/dev/vda$_i" ] || break
+				_found=$_i
+				_i=$((_i + 1))
+			done
+			if [ "$_found" -eq "$want_parts" ]; then
+				echo "flx-dtest: /dev/vda and its $_found partitions are present"
 				break
 			fi
 			_waited=$((_waited + 1))
 			sleep 1
 		done
 		if [ "$_waited" -ge 60 ]; then
-			echo "flx-dtest: FATAL /dev/vda1-3 never appeared"
+			echo "flx-dtest: FATAL /dev/vda never reached $want_parts partitions"
 			echo "flx-dtest: /dev holds: $(ls /dev | tr '\n' ' ')"
 		fi
 
-		sh "$MNT/guest-install.sh"
+		echo "flx-dtest: mode $MODE"
+		FLX_TEST_MODE=$MODE sh "$MNT/guest-install.sh"
 		echo "flx-dtest: guest-install.sh exited $?"
 	fi
 fi
 
 while :; do sleep 60; done
 RUNEOF
+# The heredoc above is quoted, so the host's $MODE did not reach it.  Written
+# afterwards instead of substituted into the heredoc, which keeps every dollar in
+# the body the guest's and makes this the one place a value crosses over.
+if ! sed "s|^FLXHOSTMODE=.*|FLXHOSTMODE=$MODE|" \
+	"$ISTAGE/var/service/flx-dtest/run" >"$ISTAGE/var/service/flx-dtest/run.new"; then
+	die 'could not write the mode into the injected service'
+fi
+mv "$ISTAGE/var/service/flx-dtest/run.new" "$ISTAGE/var/service/flx-dtest/run"
 chmod 755 "$ISTAGE/var/service/flx-dtest/run"
+
+# And check it landed, rather than trusting that it did.  A mode that silently
+# stayed 'sys' while the run says it is testing data produces a perfect sys
+# install, all its checks pass, and the log says "passed: 31 failed: 0" for a
+# run that tested the wrong thing - the one result that looks like success and
+# means nothing.  It did exactly that here.
+_got=$(sed -n 's/^FLXHOSTMODE=//p' "$ISTAGE/var/service/flx-dtest/run")
+[ "$_got" = "$MODE" ] ||
+	die "the mode did not reach the injected service: asked for $MODE, the script says ${_got:-nothing}"
+say "  mode        $MODE"
 
 # xorg and ntpd write to the console, and xorg in particular cannot find a
 # framebuffer in a headless VM, so runsvdir restarts it and it fills the log

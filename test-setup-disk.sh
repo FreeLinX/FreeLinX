@@ -173,6 +173,63 @@ out=$( cd "$TMP" && mkdir -p bin && printf '#!/bin/sh\n[ "$1" = -u ] && echo 0 |
 	  XSETUP_STATE_FILE=$TMP/mode sh "$STEP" </dev/null 2>&1 )
 contains 'refuses the override' "$out" 'only honoured with --dry-run'
 
+echo '== data mode lays out a data partition and no boot chain =='
+# A dry run, so the geometry is flxpart's real arithmetic with the writes
+# skipped.  What is checked here is that this mode asks for the other layout, not
+# that it asks well - flxpart's own suite checks what the layout contains.
+out=$(run_step '3
+2
+yes
+')
+contains 'it runs a dry run' "$out" 'dry run'
+contains 'it asks for a data layout' "$out" 'data filesystem'
+contains 'no EFI system partition' \
+	"$(printf '%s' "$out" | grep -ci 'EFI system' | tr -d ' ')" '0'
+contains 'no BIOS boot partition' \
+	"$(printf '%s' "$out" | grep -ci 'BIOS boot' | tr -d ' ')" '0'
+ok 'the disk is still untouched' "$(nonzero)" '0'
+
+echo '== data mode never reaches the sys install =='
+# The bug this replaces: data mode ran the whole sys install - root partition,
+# system copied, bootloader written - and then printed
+#
+#   ok  the system is installed.
+#
+# and exited 0, so a disk chosen for state ended up carrying a system and the
+# installer said it had done what was asked.  These are the phrases the sys path
+# is made of, and none of them may appear.
+out=$(run_step '3
+2
+yes
+')
+for phrase in 'copying the system' 'system copied' 'making a FAT filesystem' \
+	'installing the bootloader' 'bios-install' 'fstab written'; do
+	ok "no sys step ran: $phrase" \
+		"$(printf '%s' "$out" | grep -ci "$phrase" | tr -d ' ')" '0'
+done
+
+echo '== data mode labels the filesystem the way /init looks for it =='
+# One string is the whole contract between the installer and the boot code.
+# /init mounts a filesystem called FREELINX_VAR at /var; a different label means
+# the disk is made, the install reports success, and /var is silently empty on
+# every boot - so it is asserted here rather than left for a user to find out
+# after a reboot.
+out=$(run_step '3
+2
+yes
+')
+contains 'the label is FREELINX_VAR' "$out" 'FREELINX_VAR'
+
+echo '== declining the erase stops data mode too =='
+out=$(run_step '3
+2
+no
+')
+contains 'refuses' "$out" 'nothing was changed'
+ok 'the disk is still untouched' "$(nonzero)" '0'
+contains 'it did not partition' \
+	"$(printf '%s' "$out" | grep -c 'data filesystem' | tr -d ' ')" '0'
+
 echo '== need_cmd names the port that would supply the tool =='
 out=$( printf '' | sh -c "PATH=/usr/bin:/bin; . $UI; need_cmd definitely_not_here 'the some/port' 2>&1" )
 contains 'names the port' "$out" 'the some/port'
