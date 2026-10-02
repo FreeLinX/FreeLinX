@@ -377,7 +377,30 @@ SOURCE_ROOT=${SOURCE_ROOT:-/}
 # small fails at the last file with the disk half-written.
 MEDIUM=${XSETUP_MEDIUM:-}
 if [ -z "$MEDIUM" ]; then
-	for _c in "$(dirname "$0")/../.." /cdrom /media /run/media; do
+	# ../.. from *here*, not from $0.
+	#
+	# A step is sourced by the dispatcher (`. "$_file"`), so $0 is the
+	# dispatcher's path - /media/flx/installer/xsetup - and $(dirname "$0")/../..
+	# is /media.  The medium is /media/flx, one level deeper, so every lookup
+	# missed and the step reported
+	#
+	#     error: cannot find the medium this installer is running from.
+	#     Looked for boot/initramfs.img.gz in /media/flx/installer/../../, ...
+	#
+	# for a file that was mounted, readable and present the whole time: the test
+	# above it proves the file is there.  It listed its own path in the message,
+	# which is the only thing that gave it away.
+	#
+	# The step is at <medium>/installer/xsetup.d/, so the dispatcher's directory
+	# is <medium>/installer and one level up is the medium's root, where the boot
+	# chain lives.
+	#
+	# Only .. is kept of the relatives.  ../.. and ../../.. are not alternative
+	# places the medium might be, they are the two wrong answers that were here,
+	# and leaving them in reads as "any of these might be it" when neither ever
+	# is.
+	_SEARCHED=
+	for _c in "$(dirname "$0")/.." /cdrom /media /media/flx /run/media; do
 		if [ -f "$_c/boot/initramfs.img.gz" ]; then
 			MEDIUM=$(cd "$_c" && pwd) || MEDIUM=
 			break
@@ -385,6 +408,11 @@ if [ -z "$MEDIUM" ]; then
 	done
 fi
 unset _c
+
+# What was actually searched, so the error names the paths it tried rather than a
+# copy of a list that has since been edited.  The message used to print
+# $(dirname "$0")/../.. itself, which is how the wrong path gave itself away.
+SEARCHED=$(printf '%s ' $_SEARCHED)
 
 # One message for both ways this goes wrong - nothing found, and XSETUP_MEDIUM
 # naming somewhere that is not a medium - because they are the same mistake from
@@ -394,8 +422,7 @@ if [ -z "$MEDIUM" ] || [ ! -f "$MEDIUM/boot/initramfs.img.gz" ]; then
 	die "cannot find the medium this installer is running from.
      The kernel and the initramfs are on the medium, not in the running system,
      and the boot partition has to be sized for them before the disk can be
-     partitioned at all.  Looked for boot/initramfs.img.gz in
-     $(dirname "$0")/../.., /cdrom, /media, /run/media${MEDIUM:+ and in $MEDIUM}.
+     partitioned at all.  Looked for boot/initramfs.img.gz in$SEARCHED${MEDIUM:+ and in $MEDIUM}.
      Mount the medium and set XSETUP_MEDIUM to where it is.
      Nothing has been written; $dev is untouched."
 fi

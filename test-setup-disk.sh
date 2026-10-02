@@ -230,7 +230,74 @@ ok 'the disk is still untouched' "$(nonzero)" '0'
 contains 'it did not partition' \
 	"$(printf '%s' "$out" | grep -c 'data filesystem' | tr -d ' ')" '0'
 
-echo '== need_cmd names the port that would supply the tool =='
+echo '== the medium is found from where the step actually runs =='
+# The step looks for the medium it booted from, because the kernel and the
+# initramfs are on the medium and the boot partition has to be sized for them
+# before the disk can be partitioned.
+#
+# It looked two levels up from $(dirname "$0"), which is wrong: a step is
+# *sourced* by the dispatcher, so $0 is the dispatcher's path, and two levels up
+# from /media/flx/installer/xsetup is /media - not /media/flx, where the medium
+# is mounted.  Every lookup missed a mounted, readable medium and the step
+# refused to install anything:
+#
+#     error: cannot find the medium this installer is running from.
+#
+# Reproduced here the way it is on the medium, and searched with the dispatcher
+# standing in for $0, which is what the step actually saw.
+MEDDIR=$TMP/fakemedium
+mkdir -p "$MEDDIR/installer/xsetup.d" "$MEDDIR/boot"
+cp "$BASE/xsetup" "$MEDDIR/installer/xsetup"
+cp "$BASE/xsetup.d/setup-disk.sh" "$MEDDIR/installer/xsetup.d/setup-disk.sh"
+: >"$MEDDIR/boot/initramfs.img.gz"
+
+# The candidate list is lifted out of the step, not retyped here.
+#
+# A copy would pass forever while the step was wrong, which is the one thing a
+# test like this exists to prevent: the search list is the fix, so the check has
+# to be looking at the step's own list.
+#
+# Backslashes and newlines go because the list is written across two lines with a
+# continuation; left in, the continuation's escaped space would glue /cdrom onto
+# the end of the previous word and the list would be searched as one string.
+_cands=$(awk '/for _c in/,/; do$/' "$BASE/xsetup.d/setup-disk.sh" |
+	tr -d '\\\n\t' | sed 's/^.*for _c in //; s/; do$//; s/\$0/$1/g')
+
+# The search runs from a file, with the dispatcher's path as $1.
+#
+# Two ways of getting $0 to mean the dispatcher both fail, and both fail
+# quietly.  Inside single quotes a `sh -c '...'` body sees the *outer* shell's
+# $0, so every candidate was somewhere else.  In a file it is the *finder's*
+# $0, not the dispatcher's - a script's $0 is the script, and no amount of
+# trailing arguments changes that.  Hence $1, which stands in for the dispatcher's
+# path: that is what the step really sees, because the step is sourced.
+printf '%s\n' \
+	'#!/bin/sh' \
+	'for _c in '"$_cands"'; do' \
+	'	if [ -f "$_c/boot/initramfs.img.gz" ]; then' \
+	'		(cd "$_c" && pwd); exit 0' \
+	'	fi' \
+	'done' \
+	'exit 1' >"$MEDDIR/findmedium"
+
+_found=$(cd "$MEDDIR/installer" && sh "$MEDDIR/findmedium" ./xsetup 2>/dev/null)
+ok 'the medium is found with the dispatcher standing in for $0' \
+	"$_found" "$MEDDIR"
+
+# Asserted separately because it is the reason for the one above: if two levels
+# up ever finds the medium, the layout has changed and the longer search is no
+# longer what makes it work.  A fix that has quietly stopped being the reason
+# still passes the test above it.
+printf '%s\n' \
+	'#!/bin/sh' \
+	'for _c in "$(dirname "$1")/../.."; do' \
+	'	if [ -f "$_c/boot/initramfs.img.gz" ]; then printf yes; exit 0; fi' \
+	'done' \
+	'printf no' >"$MEDDIR/findold"
+_old=$(cd "$MEDDIR/installer" && sh "$MEDDIR/findold" ./xsetup 2>/dev/null)
+ok 'two levels up alone would miss it' "$_old" 'no'
+
+echo '== need_cmd names the port that would supply the tool ==' 
 out=$( printf '' | sh -c "PATH=/usr/bin:/bin; . $UI; need_cmd definitely_not_here 'the some/port' 2>&1" )
 contains 'names the port' "$out" 'the some/port'
 out=$( printf '' | sh -c "PATH=$ROOTFS/sbin:/usr/bin:/bin; . $UI; need_cmd flxpart 'the sysutils/flxpart port' 2>&1; echo rc=\$?" )

@@ -42,11 +42,39 @@ mkdir -p /etc/conf.d
 # "uk" is a real keyboard but not a real layout name here -- it is "gb" --
 # so offering it would record a name nothing on this system knows.
 # that nothing could load.
+# The console itself cannot be relaid out, so this only records the choice - see
+# the header.  The list is still worth having: it is what /etc/conf.d/loadkmap.conf
+# is for, and a system installed on one keyboard and used on another is a real
+# situation.
+#
+# Wider than it was, and for the usual reason: four layouts is a list that looks
+# deliberate and is actually an arbitrary stopping point.  These are the layouts
+# a machine is most likely to be typed on, and every one of them is a name a
+# later system can do something with.
 keymap=$(choose 'Keyboard layout' \
 	us 'us   US English' \
 	gb 'gb   UK English' \
+	ca 'ca   Canadian French' \
+	ie 'ie   Irish' \
 	de 'de   German' \
-	fr 'fr   French' \
+	at 'at   Austrian' \
+	ch 'ch   Swiss' \
+	es 'es   Spanish' \
+	it 'it   Italian' \
+	pt 'pt   Portuguese' \
+	nl 'nl   Dutch' \
+	be 'be   Belgian' \
+	se 'se   Swedish' \
+	no 'no   Norwegian' \
+	dk 'dk   Danish' \
+	fi 'fi   Finnish' \
+	pl 'pl   Polish' \
+	cz 'cz   Czech' \
+	hu 'hu   Hungarian' \
+	ro 'ro   Romanian' \
+	tr 'tr   Turkish' \
+	ru 'ru   Russian' \
+	gr 'gr   Greek' \
 	none 'leave it as it is')
 
 if [ "$keymap" = none ]; then
