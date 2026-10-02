@@ -16,6 +16,13 @@
 
 set -eu
 
+# The scratch directory is removed on every exit, including a die inside a step,
+# so a failed run does not leave a status file behind for the next one to find.
+# Traps are set before anything else can fail.
+WORK=${XSETUP_WORK:-/tmp/xsetup.$$}
+mkdir -p "$WORK"
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/lib/ui.sh"
 
@@ -130,27 +137,80 @@ run_step() {
 
 # run_ordered - every outstanding step, in order.
 #
-# A here-doc, not a pipe: piping into while runs the body in a subshell, so a
-# step that calls die would kill only the subshell and the remaining steps
-# would run anyway.
+# The list goes to file descriptor 3 and the loop reads from that, leaving stdin
+# for the person answering.  This is not a style choice.  Two obvious spellings
+# are both broken, in the same way and for the same reason:
+#
+#   done <<EOF
+#   $STEPS
+#   EOF
+#
+# makes the here-document the loop's stdin, and a step's prompts read from stdin,
+# so the twelve step names became the twelve answers:
+#
+#     [1/13] setup-keymap
+#     Keyboard layout
+#       1) us   US English
+#       2) gb   UK English
+#       ...
+#     choice: warning: 'setup-hostname' is not a number
+#     choice: warning: 'setup-interfaces' is not a number
+#     ...
+#     error: input ended before anything was entered
+#
+# Every step appeared to run.  Each one answered with the name of the step after
+# it, so the list ran out one early each time and the last step got nothing.
+#
+#   printf '%s\n' "$STEPS" | while read -r s; do
+#
+# is worse: on a pipe the loop's stdin and the step's stdin are the same
+# descriptor, and they fight over it.  Which one wins is a race, so the same
+# command can eat one name or all of them.
+#
+# fd 3 is the only arrangement where the two are separate by construction.
+#
+# The loop body is still a subshell, being the right side of a pipe, and a step
+# that calls die must not let the next step run on a system that is half
+# configured.  The status is written to a file and read here, where it can stop
+# things; the pipe has no way to carry it back.
 run_ordered() {
-	while read -r s; do
+	_rc=$WORK/ordered.rc
+	exec 3<<EOF
+$STEPS
+EOF
+	while read -r s <&3; do
 		if is_done "$s"; then
-			# Already answered, but say so: a silent skip looks like a
-			# step that vanished.
+			# Already answered, but say so: a silent skip looks like
+			# a step that vanished.
 			printf '  %-20s %salready done, skipping%s\n' "$s" \
 				"$C_YELLOW" "$C_OFF"
 			continue
 		fi
-		run_step "$s"
-	done <<EOF
-$STEPS
-EOF
+		if run_step "$s"; then
+			echo 0 >"$_rc"
+		else
+			# The step has already said why, above.
+			echo 1 >"$_rc"
+			break
+		fi
+	done
+	exec 3<&-
+	if [ -f "$_rc" ] && [ "$(cat "$_rc")" != 0 ]; then
+		return 1
+	fi
 	done_message
 }
 
 # Command line.
-[ $# -gt 0 ] || { run_ordered; exit 0; }
+# run_ordered returns non-zero when a step failed, and that has to become a
+# non-zero exit.  `run_ordered; exit 0` threw the status away, so a failed step
+# ended the whole installer with a success code - which is what "exit 0 after
+# every step appeared to run" looked like from a script's point of view, and
+# what made this worth looking for rather than shrugging at.
+if [ $# -eq 0 ]; then
+	run_ordered || exit $?
+	exit 0
+fi
 
 while [ $# -gt 0 ]; do
 	case $1 in
