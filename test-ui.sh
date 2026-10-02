@@ -406,6 +406,56 @@ ok_is 'default n shows [y/N]' "$_yn" '[y/N]'
 _yy=$(printf '\n' | sh -c '. lib/ui.sh; ask_yes Q y 2>&1' | grep -o '\[Y/n\]')
 ok_is 'default y shows [Y/n]' "$_yy" '[Y/n]'
 
+echo '== menus say two letters, not country names =='
+# The keymap menu listed "tr   Turkish" and twenty-three like it.  choose prints
+# the label and nothing else, so the label was the menu: twenty-four country
+# names to read in order to pick the two letters that are the only part anyone
+# uses.
+#
+# The label is taken out of the step rather than assumed, because the first
+# version of this check stripped the quotes and measured what was left, and
+# "tr   Turkish" then measured as "tr" - it passed with the words back in.
+_km=xsetup.d/setup-keymap.sh
+if [ -f "$_km" ]; then
+	_bad=0
+	_n=0
+	while IFS= read -r _line; do
+		case $_line in
+		# The prompt line first, or it is measured as a label: it contains a
+		# quoted string too, and "Keyboard layout" is 15 characters.
+		keymap=* | '') continue ;;
+		*"'"*) _lab=${_line#*\'}; _lab=${_lab%%\'*} ;;
+		*) _lab=$(printf '%s' "$_line" | tr -d '\\' | awk '{print $2}') ;;
+		esac
+		# The action is skipped by name rather than by position: its line
+		# begins with a tab like every other, so a leading-space pattern
+		# never matched it and it was measured as a code.
+		[ "$_lab" = 'no change' ] && continue
+		_n=$((_n + 1))
+		if [ "${#_lab}" -ne 2 ]; then
+			_bad=$((_bad + 1))
+			printf '  FAIL keymap label "%s" is %s chars, not a code\n' \
+				"$_lab" "${#_lab}"
+		fi
+	done <<EOF
+$(awk '/keymap=\$\(choose/,/^$/' "$_km")
+EOF
+	if [ "$_bad" -eq 0 ] && [ "$_n" -eq 23 ]; then
+		pass=$((pass + 1))
+		printf '  ok   all %s keymap labels are two letter codes\n' "$_n"
+	else
+		fail=$((fail + 1))
+		[ "$_n" -ne 24 ] &&
+			printf '  FAIL found %s labels, expected 23 codes\n' "$_n"
+	fi
+	# The action is not a code and has to stay readable, so it is checked on
+	# its own rather than being let through for being short.
+	ok_is 'the no-change option is still spelled out' \
+		"$(grep -c "none 'no change'" "$_km" | tr -d ' ')" '1'
+else
+	printf '  (no %s, skipping)\n' "$_km"
+fi
+
 echo '== the flags the installer passes are the flags the tools accept =='
 # setup-user passed -m to flxuseradd, which has no -m.  The step then failed on
 # every install with the usage printed above the error, so what the operator

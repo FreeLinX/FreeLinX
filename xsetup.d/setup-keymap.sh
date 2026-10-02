@@ -51,31 +51,38 @@ mkdir -p /etc/conf.d
 # deliberate and is actually an arbitrary stopping point.  These are the layouts
 # a machine is most likely to be typed on, and every one of them is a name a
 # later system can do something with.
+# The label is the whole menu: choose prints the label and nothing else.  These
+# were "tr   Turkish" and the country names are gone - twenty-four of them is a
+# paragraph of English to read in order to pick two letters, and the two letters
+# are what loadkeys takes and what /etc/conf.d/loadkmap.conf ends up holding.
+# Hence each code is written twice, once as the value the step stores and once as
+# the label the operator sees.  "leave it as it is" is not a code and stays
+# spelled out.
 keymap=$(choose 'Keyboard layout' \
-	us 'us   US English' \
-	gb 'gb   UK English' \
-	ca 'ca   Canadian French' \
-	ie 'ie   Irish' \
-	de 'de   German' \
-	at 'at   Austrian' \
-	ch 'ch   Swiss' \
-	es 'es   Spanish' \
-	it 'it   Italian' \
-	pt 'pt   Portuguese' \
-	nl 'nl   Dutch' \
-	be 'be   Belgian' \
-	se 'se   Swedish' \
-	no 'no   Norwegian' \
-	dk 'dk   Danish' \
-	fi 'fi   Finnish' \
-	pl 'pl   Polish' \
-	cz 'cz   Czech' \
-	hu 'hu   Hungarian' \
-	ro 'ro   Romanian' \
-	tr 'tr   Turkish' \
-	ru 'ru   Russian' \
-	gr 'gr   Greek' \
-	none 'leave it as it is')
+	us us \
+	gb gb \
+	ca ca \
+	ie ie \
+	de de \
+	at at \
+	ch ch \
+	es es \
+	it it \
+	pt pt \
+	nl nl \
+	be be \
+	se se \
+	no no \
+	dk dk \
+	fi fi \
+	pl pl \
+	cz cz \
+	hu hu \
+	ro ro \
+	tr tr \
+	ru ru \
+	gr gr \
+	none 'no change')
 
 if [ "$keymap" = none ]; then
 	rm -f /etc/conf.d/loadkmap.conf

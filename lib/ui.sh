@@ -181,19 +181,21 @@ choose() {
 	[ "$_cols" -gt 20 ] 2>/dev/null || _cols=80
 
 	(
-		# Width of the widest label, so the columns line up rather than
-		# stair-stepping.
-		_widest=0
-		_i=2
-		while [ "$_i" -le "$_nargs" ]; do
-			eval _len=${#_i}
-			[ "$_len" -gt "$_widest" ] && _widest=$_len
-			_i=$((_i + 2))
-		done
+		# Columns are packed by a fixed cell, not by the width of the widest
+		# label.  Measuring it was here, and it did nothing: it read ${#_i},
+		# the length of the loop counter, so the width came out as 1 and no
+		# label was ever padded.  Measuring the label properly is worse than
+		# leaving it out - every column then becomes as wide as the longest
+		# name in the list, and the region list's longest name is long enough
+		# to halve how many countries fit on a screen.  Ragged columns cost
+		# some neatness; aligned ones cost rows, and the rows are what people
+		# scroll through looking for Turkey.
+		#
 		# Per column: the number, its bracket, two spaces, the label, and a
-		# gap of two.  Numbers wider than one digit widen their own column.
-		_cell=$((_widest + 6))
-		[ "$_cell" -lt 12 ] && _cell=12
+		# gap of two.  Numbers wider than one digit overflow their column and
+		# push that one row along, which is why the keymap list is checked for
+		# being two characters wide rather than for being twenty-four short.
+		_cell=12
 		_perrow=$((_cols / _cell))
 		[ "$_perrow" -lt 1 ] && _perrow=1
 
@@ -205,7 +207,7 @@ choose() {
 			if [ "$_col" -eq 0 ]; then
 				printf '  ' >&2
 			fi
-			printf '%s) %-*s' "$(((_i + 1) / 2))" "$_widest" "$_label" >&2
+			printf '%s) %s' "$(((_i + 1) / 2))" "$_label" >&2
 			_col=$((_col + 1))
 			if [ "$_col" -ge "$_perrow" ]; then
 				printf '\n' >&2
