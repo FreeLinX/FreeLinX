@@ -406,6 +406,66 @@ ok_is 'default n shows [y/N]' "$_yn" '[y/N]'
 _yy=$(printf '\n' | sh -c '. lib/ui.sh; ask_yes Q y 2>&1' | grep -o '\[Y/n\]')
 ok_is 'default y shows [Y/n]' "$_yy" '[Y/n]'
 
+echo '== choose answers at every row width, under the flags xsetup runs with =='
+# xsetup runs `set -eu`.  choose printed its labels in a subshell whose last
+# command was
+#
+#     [ "$_col" -ne 0 ] && printf '\n' >&2
+#
+# which returns 1 when the options fill the last row exactly, because then _col
+# is 0.  Errexit in a command substitution kills the substitution, so the menu
+# printed, the "choice:" prompt never did, choose returned nothing and the
+# installer exited to the shell - which is why the number typed next went to
+# the shell and came back "sh: 1: not found".
+#
+# It only happened when the count was a multiple of the row width, so it read
+# as nothing to do with menus at all: five options worked, six did not,
+# twenty-one worked and twenty-four did not.  The old keymap menu had five
+# entries.  The new one has twenty-four, which is 4 rows of 6.
+#
+# Every multiple of the row width is tested, not just the one that broke, and
+# under `set -eu` rather than a bare shell - the missing flag is what let every
+# other attempt at reproducing this pass.
+_roww=12                       # the cell width choose packs columns by
+_perrow=$((80 / _roww))        # 6 at an 80 column terminal
+_eu=0
+for _n in 1 2 "$_perrow" $((_perrow * 2)) $((_perrow * 3)) $((_perrow * 4)) \
+	$((_perrow - 1)) $((_perrow + 1)); do
+	_pairs=$(awk -v n="$_n" 'BEGIN {
+		s = ""; split("a b c d e f g h i j k l m n o p q r s t u v w x y z", L, " ")
+		for (i = 1; i <= n; i++) s = s L[i] " " L[i] " "
+		print s }')
+	_got=$(printf '1\n' | sh -c "
+		set -eu
+		. lib/ui.sh
+		x=\$(choose T $_pairs)
+		printf '%s' \"\$x\"" 2>/dev/null)
+	if [ -z "$_got" ]; then
+		_eu=$((_eu + 1))
+		printf '  FAIL %s options, a multiple of %s per row: choose returned nothing\n' \
+			"$_n" "$_perrow"
+	fi
+done
+if [ "$_eu" -eq 0 ]; then
+	pass=$((pass + 1))
+	printf '  ok   choose answers at 1, 2, %s, and %s options under set -eu\n' \
+		"$_perrow" $((_perrow * 4))
+else
+	fail=$((fail + 1))
+fi
+
+# And the whole step, not just choose: the keymap menu really is 24 options,
+# which is the width that broke, so run the step the way the dispatcher runs it.
+_step=$(printf '1\n' | sh -c "
+	set -eu
+	. lib/ui.sh
+	need_root() { :; }
+	x=\$(choose 'Keyboard layout' us us gb gb ca ca ie ie de de at at ch ch \\
+		es es it it pt pt nl nl be be se se no no dk dk fi fi pl pl cz cz \\
+		hu hu ro ro tr tr ru ru gr gr none 'no change')
+	printf '%s' \"\$x\"" 2>/dev/null)
+ok_is 'the 24 option keymap menu answers under set -eu' "$_step" 'us'
+
 echo '== menus say two letters, not country names =='
 # The keymap menu listed "tr   Turkish" and twenty-three like it.  choose prints
 # the label and nothing else, so the label was the menu: twenty-four country

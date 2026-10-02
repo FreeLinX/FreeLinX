@@ -217,7 +217,33 @@ choose() {
 			fi
 			_i=$((_i + 2))
 		done
-		[ "$_col" -ne 0 ] && printf '\n' >&2
+		# `if`, not `&&`, and this is not a style preference.
+		#
+		# The trailing newline when the last row is short.  Written as
+		#
+		#     [ "$_col" -ne 0 ] && printf '\n' >&2
+		#
+		# it is the last command of this subshell, so when the options fill
+		# the last row exactly _col is 0 and it returns 1.  xsetup runs under
+		# `set -e`, a command substitution is a subshell, and errexit in a
+		# subshell kills the substitution the moment a command fails.  The
+		# menu printed, the prompt never did, choose returned nothing and the
+		# installer exited:
+		#
+		#     [1/13] setup-keymap
+		#     Keyboard layout
+		#       1) us  2) gb ... 23) gr  24) no change
+		#     root@freelinx:~#
+		#
+		# Only when the count is a multiple of the row width, which is why it
+		# looked like nothing to do with menus: five options work, six do not,
+		# twenty-one works and twenty-four does not.  The old keymap menu had
+		# five entries and the new one has twenty-four.
+		#
+		# An `if` with no branch taken returns 0 whatever the condition was.
+		if [ "$_col" -ne 0 ]; then
+			printf '\n' >&2
+		fi
 	)
 
 	while :; do
