@@ -52,7 +52,13 @@ keymap=$(choose 'Keyboard layout' \
 if [ "$keymap" = none ]; then
 	rm -f /etc/conf.d/loadkmap.conf
 	ok 'layout left alone'
-	exit 0
+# # `return`, not `exit`.  A step is sourced by the dispatcher, not run as its own
+# process, so `exit` here ends the whole installer rather than this step: the
+# step printed its line, said everything was fine, and dropped the operator back
+# at the shell prompt with steps 7 to 13 never run and nothing marked done.  It
+# looked like the step failed, which is the opposite of what it said.
+
+	return 0
 fi
 
 {

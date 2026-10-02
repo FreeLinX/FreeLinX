@@ -96,7 +96,13 @@ if [ "$mode" = none ]; then
 	say ''
 	say 'Steps 12 (setup-lbu and setup-apkcache) apply to this mode: they'
 	say 'decide where a backup overlay and the package cache are kept.'
-	exit 0
+# # `return`, not `exit`.  A step is sourced by the dispatcher, not run as its own
+# process, so `exit` here ends the whole installer rather than this step: the
+# step printed its line, said everything was fine, and dropped the operator back
+# at the shell prompt with steps 7 to 13 never run and nothing marked done.  It
+# looked like the step failed, which is the opposite of what it said.
+
+	return 0
 fi
 
 # --- refusing early -------------------------------------------------------
@@ -251,7 +257,7 @@ $layout"
 		say "  data         $VAR_DEV  (label FREELINX_VAR)"
 		say ''
 		say 'Nothing has been written to '"$dev"'.'
-		exit 0
+		return 0
 	fi
 
 	info "making an ext4 filesystem on $VAR_DEV"
@@ -314,7 +320,7 @@ $layout"
 	say 'Boot the medium again - the same way you just did - and /var comes'
 	say 'back. Nothing on this disk is bootable, and that is deliberate: there'
 	say 'is no kernel on it to boot.'
-	exit 0
+	return 0
 }
 
 # The mode is known and the disk is chosen and the erase is confirmed, so this

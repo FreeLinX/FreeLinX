@@ -22,7 +22,13 @@ MODE=none
 case $MODE in
 sys)
 	ok 'the system is on a disk, so /var/cache/xpkg is already on one'
-	exit 0
+# # `return`, not `exit`.  A step is sourced by the dispatcher, not run as its own
+# process, so `exit` here ends the whole installer rather than this step: the
+# step printed its line, said everything was fine, and dropped the operator back
+# at the shell prompt with steps 7 to 13 never run and nothing marked done.  It
+# looked like the step failed, which is the opposite of what it said.
+
+	return 0
 	;;
 esac
 
@@ -38,7 +44,7 @@ if [ "$where" = ram ]; then
 	printf 'XPKG_CACHE=%s\n' "$DEFAULT" >/etc/xpkg/cache.conf
 	mkdir -p "$DEFAULT"
 	ok "package cache stays in $DEFAULT (lost on reboot)"
-	exit 0
+	return 0
 fi
 
 devs=
@@ -52,7 +58,7 @@ if [ -z "$devs" ]; then
 	warn 'Downloads will be repeated on every boot.'
 	printf 'XPKG_CACHE=%s\n' "$DEFAULT" >/etc/xpkg/cache.conf
 	ok 'package cache stays in RAM (no disk present)'
-	exit 0
+	return 0
 fi
 
 info 'disks found:'

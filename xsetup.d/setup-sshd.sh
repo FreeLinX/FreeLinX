@@ -26,7 +26,13 @@ none)
 	# If it was enabled before, take it back out again.
 	[ -L /var/service/sshd ] && rm -f /var/service/sshd
 	ok 'no SSH daemon enabled'
-	exit 0
+# # `return`, not `exit`.  A step is sourced by the dispatcher, not run as its own
+# process, so `exit` here ends the whole installer rather than this step: the
+# step printed its line, said everything was fine, and dropped the operator back
+# at the shell prompt with steps 7 to 13 never run and nothing marked done.  It
+# looked like the step failed, which is the opposite of what it said.
+
+	return 0
 	;;
 esac
 
@@ -34,7 +40,7 @@ warn "enabling $choice means anyone who can reach this machine and knows an"
 warn 'account may log in over the network. Make sure the root password set'
 warn 'in step 4 is not the only thing standing between them and a shell.'
 printf '\n'
-ask_yes 'Enable it anyway' y || { ok 'left disabled'; exit 0; }
+ask_yes 'Enable it anyway' y || { ok 'left disabled'; return 0; }
 
 need_cmd ssh-keygen 'the net/openssh port'
 

@@ -306,5 +306,46 @@ _bare=$(grep -c "none \\$" xsetup.d/*.sh xsetup 2>/dev/null | \
 	awk -F: '{ t += $2 } END { print t + 0 }')
 ok_is 'no bare option value before a continuation' "$_bare" '0'
 
+echo '== a step that returns early does not end the installer =='
+# A step that ends with `return 0` because the operator declined something must
+# let the run continue.  `exit 0` did not: a step is sourced, so `exit` ended the
+# whole installer.  The step printed its line, said everything was fine, and put
+# the operator back at the shell prompt with the rest of the steps never run and
+# nothing recorded - which reads as the step failing and is the opposite.
+cat >"$DISPATCH_TMP/xsetup.d/one.sh" <<EOF
+#!/bin/sh
+. "$DISPATCH_TMP/lib/ui.sh"
+ANSWER=\$(ask "leave it alone?" "no" "yes no" "yes")
+if [ "\$ANSWER" = no ]; then
+	ok 'left alone'
+	return 0
+fi
+ok 'did the thing'
+EOF
+cat >"$DISPATCH_TMP/xsetup.d/two.sh" <<EOF
+#!/bin/sh
+. "$DISPATCH_TMP/lib/ui.sh"
+printf 'ANSWER=two-ran\n'
+EOF
+# Three gets its own text, or the two counts above are the same number and
+# neither says anything about whether that step ran.
+sed 's/two-ran/three-ran/' "$DISPATCH_TMP/xsetup.d/two.sh" \
+	>"$DISPATCH_TMP/xsetup.d/three.sh"
+RUN=$((RUN + 1))
+E=$(cd "$DISPATCH_TMP" && printf 'no\nno\ncharlie\n' |
+	XSETUP_STATE="$DISPATCH_TMP/state.$RUN" XSETUP_WORK="$DISPATCH_TMP/work" \
+	sh ./xsetup 2>&1)
+ok_is 'the step after the early return still ran' \
+	"$(printf '%s\n' "$E" | grep -c 'ANSWER=two-ran' || :)" '1'
+# And the last step ran, rather than the run stopping after the early return.
+ok_is 'the final step ran too' \
+	"$(printf '%s\n' "$E" | grep -c 'ANSWER=three' || :)" '1'
+
+echo '== no step ends the installer with exit =='
+# The shape, checked across the tree rather than in one step.  `exit 0` in a
+# sourced step is the whole bug; `return 0` is what a step means by finishing.
+_ex=$(grep -c 'exit 0' xsetup.d/*.sh 2>/dev/null | awk -F: '{ t += $2 } END { print t + 0 }')
+ok_is 'no step uses exit 0' "$_ex" '0'
+
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

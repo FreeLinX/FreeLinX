@@ -23,7 +23,13 @@ MODE=none
 case $mode in
 sys)
 	ok 'the system is installed on a disk, so an overlay is not needed'
-	exit 0
+# # `return`, not `exit`.  A step is sourced by the dispatcher, not run as its own
+# process, so `exit` here ends the whole installer rather than this step: the
+# step printed its line, said everything was fine, and dropped the operator back
+# at the shell prompt with steps 7 to 13 never run and nothing marked done.  It
+# looked like the step failed, which is the opposite of what it said.
+
+	return 0
 	;;
 esac
 
@@ -43,7 +49,7 @@ none)
 	warn 'nothing will be kept. Every change is lost when the machine'
 	warn 'reboots, and the image has to be booted again to get a system.'
 	ok 'overlay storage: none'
-	exit 0
+	return 0
 	;;
 disk)
 	# A disk that is not there cannot be the answer, so the device is
@@ -59,7 +65,7 @@ disk)
 		warn 'Falling back to nowhere: changes will be lost on reboot.'
 		printf 'LBU_MEDIA=none\n' >/etc/conf.d/lbu.conf
 		ok 'overlay storage: none (no disk present)'
-		exit 0
+		return 0
 	fi
 
 	info 'disks found:'
