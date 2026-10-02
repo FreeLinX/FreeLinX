@@ -62,7 +62,13 @@ for d in $devs; do
 done
 
 # shellcheck disable=SC2086
-dev=$(choose 'Which disk holds the package cache' none \
+# "none" needs a label as well as a value.  A bare `none` is one word where an
+# entry is two, so the count comes out odd and choose refuses the menu outright:
+#
+#     error: choose: "Which disk holds the package cache" was given an odd
+#            number of arguments
+#
+dev=$(choose 'Which disk holds the package cache' none 'no disk, keep it in RAM' \
 	$(for d in $devs; do printf '%s %s ' "$d" "$d"; done))
 [ "$dev" = none ] && die 'no disk was chosen, so the cache stays in RAM'
 

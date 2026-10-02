@@ -107,14 +107,22 @@ while :; do
 	# Region names have no spaces in them, so plain word splitting is safe here
 	# and the quoting is unnecessary as well as wrong.
 	# shellcheck disable=SC2086
-	region=$(choose 'Region' none $(menu_pairs $regions))
+	# "none" needs a label as well as a value, or the argument count is odd and
+	# choose refuses the whole menu:
+	#
+	#     error: choose: "Region" was given an odd number of arguments
+	#
+	# Each entry is one value and one label.  A bare `none` is one word, so it is
+	# half an entry.
+	# shellcheck disable=SC2086
+	region=$(choose 'Region' none 'leave it alone' $(menu_pairs $regions))
 	[ "$region" = none ] && die 'no time zone was chosen'
 	[ "$region" = UTC ] && { zone=UTC; break; }
 
 	cities=$(printf '%s\n' "$zones" | grep "^$region/")
 	if [ "$(printf '%s\n' "$cities" | wc -l | tr -d ' ')" -le 40 ]; then
 		# shellcheck disable=SC2086
-		zone=$(choose "City in $region" none \
+		zone=$(choose "City in $region" none 'leave it alone' \
 			$(menu_pairs $cities))
 		[ "$zone" = none ] && continue
 		break

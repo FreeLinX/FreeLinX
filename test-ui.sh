@@ -244,5 +244,67 @@ _three=$(cd "$DISPATCH_TMP" && printf 'alpha\nbravo\ncharlie\n' |
 	sh ./xsetup 2>/dev/null | grep -o 'ANSWER=[^ ]*' | wc -l | tr -d ' ')
 ok_is 'the step after the failure did not run' "$_three" '1'
 
+# --- every choose call in the installer must have whole entries -------------
+#
+# choose takes a value and a label per option.  A bare word where an entry
+# belongs is half an entry, and the count comes out odd, and choose refuses the
+# menu outright rather than offering a wrong one:
+#
+#     error: choose: "Region" was given an odd number of arguments
+#
+# which is what step 5 of every install died on.  The mistake is invisible in
+# the source because the line reads correctly:
+#
+#     region=$(choose 'Region' none $(menu_pairs $regions))
+#
+# `none` has a value but no label.  There is no way to see that by looking, and
+# nothing else in the tree runs the step, so it is checked here: every choose
+# call whose argument list is written out in full, counted, and rejected if it
+# is odd.  Calls that generate their pairs with $(...) are skipped, because their
+# count depends on what they generate; the bare-word-before-a-continuation case
+# below is what catches those.
+echo '== every choose call in the installer has whole entries =='
+_odd=0
+_where=''
+for _f in xsetup xsetup.d/*.sh; do
+	[ -f "$_f" ] || continue
+	# Only calls that do not generate their pairs, so the count is knowable.
+	awk -v file="$_f" '
+		/\bchoose\b/ {
+			line = $0
+			while (line !~ /\)[ 	]*$/ && (getline nxt) > 0)
+				line = line " " nxt
+			if (line ~ /\$\(/) next          # generated pairs
+			# The prompt is the first quoted string; drop it.
+			sub(/^.*choose[ 	]+("[^"]*"|'"'"'[^'"'"']*'"'"')/, "", line)
+			# Tokenise: quoted strings, or runs with no space in them.
+			n = 0
+			while (match(line, /"[^"]*"|'"'"'[^'"'"']*'"'"'|[^ 	\)]+/)) {
+				tok = substr(line, RSTART, RLENGTH)
+				line = substr(line, RSTART + RLENGTH)
+				if (tok != "\\") n++
+			}
+			if (n % 2 == 1) {
+				printf "  FAIL %s:%d has %d arguments\n", file, FNR, n
+				failed = 1
+			}
+			n = 0
+		}
+		END { exit failed ? 1 : 0 }
+	' "$_f" || _odd=1
+done
+if [ "$_odd" -eq 0 ]; then
+	pass=$((pass + 1)); printf '  ok   every choose call has value and label pairs\n'
+else
+	fail=$((fail + 1))
+fi
+
+echo '== no bare "none" ahead of generated pairs =='
+# The specific shape that broke: a lone option value with no label, followed by a
+# continuation into a $(...) that supplies the rest of the entries.
+_bare=$(grep -c "none \\$" xsetup.d/*.sh xsetup 2>/dev/null | \
+	awk -F: '{ t += $2 } END { print t + 0 }')
+ok_is 'no bare option value before a continuation' "$_bare" '0'
+
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
