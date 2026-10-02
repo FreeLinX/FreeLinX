@@ -52,6 +52,21 @@ fi
 ZONES_TMP=${ZONES_TMP:-/tmp/xsetup-zones.$$}
 trap 'rm -f "$ZONES_TMP" "$ZONES_TMP.regions"' EXIT INT TERM
 
+# menu_pairs LIST - "value label" arguments for choose, one pair per line on
+# stdout, unquoted, for word splitting by the caller.
+#
+# Each name is its own value and its own label: choose displays the label and
+# returns the value, and here they are the same string.
+menu_pairs() {
+	# "$@", not "$1".  The caller passes the whole list as separate words and
+	# then lets choose's own word splitting take it apart again; reading only the
+	# first argument gives one region, and the menu offers a single choice no
+	# matter how many regions exist.
+	for _r in "$@"; do
+		printf '%s %s\n' "$_r" "$_r"
+	done
+}
+
 zones_list() {
 	find "$ZONEINFO" -type f 2>/dev/null |
 		sed "s|^$ZONEINFO/||" |
@@ -77,10 +92,22 @@ while :; do
 	sort -u "$ZONES_TMP.regions" -o "$ZONES_TMP.regions" ||
 		die 'cannot sort the region list'
 	regions=$(cat "$ZONES_TMP.regions")
-	# Word splitting is wanted here: the region names have no spaces in
-	# them, and the labels are quoted so choose gets them as one word each.
+	# One value and one label per region, in that order, which is what choose
+	# pairs up.  This produced one word per region instead - a region name
+	# wrapped in quotes and nothing else - so choose paired each region with the
+	# *next* one as its label and the last one with nothing:
+	#
+	#     26) "ROC"
+	#     27) "Singapore"
+	#
+	# The quotes in the menu are the labels the caller passed, and the value a
+	# choice returned was the following region's name.  Picking anything returned
+	# a name that was not what was asked for, and the step died trying to use it.
+	#
+	# Region names have no spaces in them, so plain word splitting is safe here
+	# and the quoting is unnecessary as well as wrong.
 	# shellcheck disable=SC2086
-	region=$(choose 'Region' none $(printf '%s\n' $regions | sed 's/^/"/; s/$/"/'))
+	region=$(choose 'Region' none $(menu_pairs $regions))
 	[ "$region" = none ] && die 'no time zone was chosen'
 	[ "$region" = UTC ] && { zone=UTC; break; }
 
@@ -88,7 +115,7 @@ while :; do
 	if [ "$(printf '%s\n' "$cities" | wc -l | tr -d ' ')" -le 40 ]; then
 		# shellcheck disable=SC2086
 		zone=$(choose "City in $region" none \
-			$(printf '%s\n' $cities | sed 's/^/"/; s/$/"/'))
+			$(menu_pairs $cities))
 		[ "$zone" = none ] && continue
 		break
 	fi

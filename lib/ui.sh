@@ -145,14 +145,57 @@ choose() {
 	# expansion ${!_i} is the obvious alternative and is not POSIX -- bash
 	# and musl ash both have it, but a POSIX sh need not, and this is the one
 	# function every step goes through.
+	# Across the screen rather than down it.
+	#
+	# The region list is 60-odd entries and the city list runs to several
+	# hundred; one per line is a wall of text you scroll to find a country in.
+	# Laid out in columns the same list is a screen or two, and the number
+	# beside each name is unchanged.
+	#
+	# Width from COLUMNS when it is set, else 80.  tty(1) is not asked: it is
+	# another process per menu and this system has no working /dev/stdin for
+	# programs that open it.  A wrong COLUMNS gives a wide or a cramped menu,
+	# which is cosmetic; every number is still printed and still means what it
+	# said.
+	_cols=${COLUMNS:-80}
+	[ "$_cols" -gt 20 ] 2>/dev/null || _cols=80
+
 	(
+		# Width of the widest label, so the columns line up rather than
+		# stair-stepping.
+		_widest=0
+		_i=2
+		while [ "$_i" -le "$_nargs" ]; do
+			eval _len=${#_i}
+			[ "$_len" -gt "$_widest" ] && _widest=$_len
+			_i=$((_i + 2))
+		done
+		# Per column: the number, its bracket, two spaces, the label, and a
+		# gap of two.  Numbers wider than one digit widen their own column.
+		_cell=$((_widest + 6))
+		[ "$_cell" -lt 12 ] && _cell=12
+		_perrow=$((_cols / _cell))
+		[ "$_perrow" -lt 1 ] && _perrow=1
+
 		_i=1
+		_col=0
 		while [ "$_i" -le "$_nargs" ]; do
 			_label=$2
 			shift 2
-			printf '  %s) %s\n' "$(((_i + 1) / 2))" "$_label" >&2
+			if [ "$_col" -eq 0 ]; then
+				printf '  ' >&2
+			fi
+			printf '%s) %-*s' "$(((_i + 1) / 2))" "$_widest" "$_label" >&2
+			_col=$((_col + 1))
+			if [ "$_col" -ge "$_perrow" ]; then
+				printf '\n' >&2
+				_col=0
+			else
+				printf '  ' >&2
+			fi
 			_i=$((_i + 2))
 		done
+		[ "$_col" -ne 0 ] && printf '\n' >&2
 	)
 
 	while :; do
