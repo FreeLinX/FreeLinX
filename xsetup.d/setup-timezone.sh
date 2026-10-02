@@ -117,7 +117,29 @@ while :; do
 	# shellcheck disable=SC2086
 	region=$(choose 'Region' none 'leave it alone' $(menu_pairs $regions))
 	[ "$region" = none ] && die 'no time zone was chosen'
-	[ "$region" = UTC ] && { zone=UTC; break; }
+	# A region with no slash in it is itself a zone.
+	#
+	# UCT, Zulu, Universal, ROC, ROK, Turkey, Singapore and a dozen others are
+	# single zones stored as themselves, not as themselves with a city under
+	# them: the database has UCT, not UCT/Anything.  So the city grep below finds
+	# nothing, the city menu is built from an empty list, and the only entry is
+	# the escape - a menu of one that cannot be answered with the zone the
+	# operator selected.  UTC was special-cased here and worked; every other
+	# single-zone region did not, and choosing one ended the installer:
+	#
+	#     55) UCT
+	#     Time zone under UCT:
+	#     error: input ended before anything was entered
+	#
+	# which is what choosing 55 does.
+	#
+	# Match the region on the trailing slash *or* the end of the name, so both
+	# shapes are found and the city menu is only built when there really are
+	# cities.
+	if printf '%s\n' "$zones" | grep -qx "$region"; then
+		zone=$region
+		break
+	fi
 
 	cities=$(printf '%s\n' "$zones" | grep "^$region/")
 	if [ "$(printf '%s\n' "$cities" | wc -l | tr -d ' ')" -le 40 ]; then
