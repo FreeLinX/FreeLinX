@@ -257,7 +257,10 @@ $layout"
 		say "  data         $VAR_DEV  (label FREELINX_VAR)"
 		say ''
 		say 'Nothing has been written to '"$dev"'.'
-		return 0
+		# exit, like the real branch below: returning from install_data lands
+		# in the sys install, which partitions a disk the operator was told
+		# nothing would be written to.
+		exit 0
 	fi
 
 	info "making an ext4 filesystem on $VAR_DEV"
@@ -320,7 +323,13 @@ $layout"
 	say 'Boot the medium again - the same way you just did - and /var comes'
 	say 'back. Nothing on this disk is bootable, and that is deliberate: there'
 	say 'is no kernel on it to boot.'
-	return 0
+	# exit, not return: install_data is a function, not a sourced step, and it is
+	# the whole of data mode. Returning from it fell through to the sys install
+	# below and made data mode build a boot chain and copy the system onto a disk
+	# the operator asked to hold /var - which is the exact failure this mode
+	# exists to avoid. Every other `return 0` in this file is inside a step
+	# sourced by the dispatcher, where returning is right and exiting is not.
+	exit 0
 }
 
 # The mode is known and the disk is chosen and the erase is confirmed, so this

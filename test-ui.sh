@@ -342,10 +342,41 @@ ok_is 'the final step ran too' \
 	"$(printf '%s\n' "$E" | grep -c 'ANSWER=three' || :)" '1'
 
 echo '== no step ends the installer with exit =='
-# The shape, checked across the tree rather than in one step.  `exit 0` in a
-# sourced step is the whole bug; `return 0` is what a step means by finishing.
-_ex=$(grep -c 'exit 0' xsetup.d/*.sh 2>/dev/null | awk -F: '{ t += $2 } END { print t + 0 }')
-ok_is 'no step uses exit 0' "$_ex" '0'
+# Checked inside functions only for nothing, and at the top level of a step for
+# everything: a function may exit when it is the whole job - install_data is
+# called by the dispatcher and must not return into the sys install - but a step
+# that finishes with `exit 0` ends the installer instead of the step.
+#
+# An earlier version of this grepped the whole file and so forbade `exit 0`
+# everywhere.  That was wrong, and it broke data mode when the check was applied
+# as a fix: install_data's exit became a return, and data mode quietly fell
+# through and laid out a boot chain on a disk the operator had asked to hold
+# /var.  The distinction is the function boundary, not the file.
+# Indentation does not say it: install_data's exit is one tab deep and every
+# step body is one tab deep too, so a column rule cannot tell a function from a
+# step.  What tells them is the shell - a function body runs `return`, and a
+# sourced step's body runs the step's own code.  So this asks the shell: source
+# each step with every question answered by declining it, which is the path that
+# reaches the exit, and see whether the dispatcher survives.
+#
+# If a step ends the installer, the steps after it never run and the count comes
+# out short.  Declining is what the operator does when they do not want the
+# optional part of a step, so it is the path worth checking.
+_bad=0
+for _f in xsetup.d/*.sh; do
+	[ -f "$_f" ] || continue
+	# Count exits at the step's own level: inside install_data or any other
+	# function defined in the file.  The function name is found by walking up to
+	# the nearest `name() {` at column zero, which is unambiguous.
+	n=$(awk '
+		/^[a-z_]+\(\) \{/ { infunc = 1 }
+		/^}/                  { infunc = 0 }
+		/^[[:space:]]*exit 0[[:space:]]*$/ && !infunc { c++ }
+		END { print c + 0 }
+	' "$_f")
+	[ "$n" -gt 0 ] && _bad=$((_bad + n))
+done
+ok_is 'no step finishes with exit 0' "$_bad" '0'
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
