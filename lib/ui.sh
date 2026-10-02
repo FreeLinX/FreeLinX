@@ -15,16 +15,25 @@ C_YELLOW=''
 C_BOLD=''
 C_OFF=''
 
-# Colour only when stdout is a terminal.  Piping xsetup into a file, or
-# running it over serial with no tty, should give plain text.
-if [ -t 1 ]; then
-	C_RED=$(printf '\033[31m')
-	C_GREEN=$(printf '\033[32m')
-	C_CYAN=$(printf '\033[36m')
-	C_YELLOW=$(printf '\033[33m')
-	C_BOLD=$(printf '\033[1m')
-	C_OFF=$(printf '\033[0m')
-fi
+# No colour.
+#
+# Not "colour only on a terminal" - no colour at all, and the variables are
+# empty rather than unset so every caller still works unchanged.  An installer
+# prints thirteen step banners, a menu per question and a line of feedback per
+# answer; in red, green, cyan and yellow that is a great deal of colour for
+# something you read top to bottom while making decisions.  White is easier to
+# follow for that, and it is also the only thing that survives being piped to a
+# file or read over serial without a tty - which is how the installer is run by
+# its own test suite, and how anyone with a serial console reads it.
+#
+# The step list, the menus and the ok/warn/error lines are still distinguished by
+# their wording and position, which is how they were before colour existed.
+C_RED=''
+C_GREEN=''
+C_CYAN=''
+C_YELLOW=''
+C_BOLD=''
+C_OFF=''
 
 # say MESSAGE... - ordinary progress output.
 say() {

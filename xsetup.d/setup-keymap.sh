@@ -4,8 +4,7 @@
 #
 # setup-keymap - pick the keyboard layout.
 #
-# Written to /etc/conf.d/loadkmap.conf and used when a graphical session
-# starts.
+# Recorded in /etc/conf.d/loadkmap.conf, and not applied: see below.
 #
 # It does not, and cannot, re-lay-out the running text console.  KDSETKEYMAP,
 # the ioctl that used to allow it, was removed from Linux along with
@@ -14,9 +13,21 @@
 # program on a running system can use to change it.  NetBSD's kbdcomp and
 # loadkeys are a pair for an interface that no longer exists here.
 #
-# So the layout is taken from XKB, which is what a framebuffer or X session
-# actually reads, and this step says plainly what it did and did not do.  A
-# step that appeared to change the console and did not would leave somebody
+# So the answer is recorded and not applied, and this says so plainly.  A step
+# that appeared to change the console and did not would leave somebody typing
+# a German layout on a US console with no way to tell why.
+#
+# This step used to record an XKB symbol-set name and then check that the file
+# was there, warning when it was not.  base has no X server and no X client and
+# /usr/share/X11/xkb is not in the image, so on every run it warned:
+#
+#     ok recorded us in /etc/conf.d/loadkmap.conf
+#     warning: there is no /usr/share/X11/xkb/symbols/us, so a graphical
+#     warning: session will fall back to its default layout.
+#
+# A check for a file that is never present is not a check.  It is a warning
+# about the image, printed on every install as though the operator had done
+# something wrong.
 # typing a German layout on a US console with no way to tell why.
 
 # ui.sh is sourced by the xsetup dispatcher, but each step sources it itself
@@ -28,9 +39,8 @@ need_root
 
 mkdir -p /etc/conf.d
 
-# The values are XKB symbol-set names, which is the naming FreeLinX has:
-# /usr/share/X11/xkb/symbols/{us,gb,de,fr}.  "uk" is a real keyboard but not
-# a real XKB set -- it is "gb" -- so offering it would record a layout name
+# "uk" is a real keyboard but not a real layout name here -- it is "gb" --
+# so offering it would record a name nothing on this system knows.
 # that nothing could load.
 keymap=$(choose 'Keyboard layout' \
 	us 'us   US English' \
@@ -51,18 +61,8 @@ fi
 } >/etc/conf.d/loadkmap.conf
 ok "recorded $keymap in /etc/conf.d/loadkmap.conf"
 
-# Check the set is actually there, rather than writing a preference nothing
-# can satisfy.  A wrong name here is an X session that comes up in the wrong
-# language, and it presents as X being broken.
-xkbdir=${XKB_DIR:-/usr/share/X11/xkb}
-if [ -d "$xkbdir/symbols/$keymap" ]; then
-	ok "$xkbdir/symbols/$keymap is present"
-else
-	warn "there is no $xkbdir/symbols/$keymap, so a graphical session will"
-	warn 'fall back to its default layout. The choice is recorded regardless.'
-fi
-
 say ''
 say '  The text console keeps the layout it booted with: Linux removed the'
-say '  ioctl that used to let a program change it. This setting is read by a'
-say '  graphical session, which takes its layout from XKB.'
+say '  ioctl that used to let a program change it, so there is no way for a'
+say '  running system to relayout the console. The choice is recorded for a'
+say '  later system to use.'
