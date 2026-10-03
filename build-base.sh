@@ -102,10 +102,36 @@ HOME_URL="https://github.com/FreeLinX"
 SUPPORT_URL="https://github.com/FreeLinX"
 BUG_REPORT_URL="https://github.com/FreeLinX/FreeLinX-base/issues"
 EOF
+# /etc/issue and /etc/motd are written here, not edited.  Both come from the
+# desktop: a Plan 9 Rio banner whose version line reads
+#
+#      FreeLinX 1.0 (Rio Workstation Edition) - Static Musl / Linux 6.6
+#
+# so this used to sed " FreeLinX 1.0.x" and then die unless the result was
+# exactly " FreeLinX $VERSION" - which it never was, and every build stopped
+# here before it made an ISO.  mkrootfs.sh had a second attempt at the same two
+# files, sed-ing a different line the desktop banner also lacks, and then
+# refusing the file for containing the word "desktop", which it did in four
+# other lines.
+#
+# Written out instead, and not trimmed afterwards, because both files are read:
+# sshd shows /etc/issue before the password prompt and flxconsole writes
+# /etc/motd to every console it opens, which on base is the only thing on screen
+# between the boot log and the prompt.  Neither rewrites it, so this is the one
+# place the version is stamped; nothing else will put it there later.
 for f in etc/motd etc/issue; do
-	[ -f "$STAGE/$f" ] || continue
-	sed -i "s/^ FreeLinX 1\.0[0-9.]*\$/ FreeLinX $VERSION/" "$STAGE/$f"
-	grep -q "^ FreeLinX $VERSION\$" "$STAGE/$f" || die "$f has no version line"
+	cat >"$STAGE/$f" <<EOF
+ FreeLinX $VERSION base
+
+ A shell, a package manager, and no desktop.
+
+ Nothing on this medium is kept until it is installed to a disk:
+
+    xsetup      install FreeLinX, one question at a time
+
+ Manuals: man <command>.
+EOF
+	grep -q "^ FreeLinX $VERSION base\$" "$STAGE/$f" || die "wrote $f without its version line"
 done
 
 # The gate again, on what is actually packed (firmware included).
@@ -136,22 +162,39 @@ if [ "${SERIAL:-0}" = 1 ]; then
 fi
 # rootfstype=ramfs: the unpacked system is bigger than tmpfs' default cap of
 # half the RAM on a 2 GB machine.
+#
+# console=tty0 is last, so /dev/console is the screen and not the serial line.
+# Every console= on the line gets the kernel's output either way; what the last
+# one decides is where /init and everything it starts write.  That is the
+# terminal the operator is answering the installer's questions on, and a serial
+# line that may not be plugged in is the wrong place for it.
+#
+# No quiet and no loglevel=.  Both said the same thing - show almost nothing -
+# and together they left a successful boot printing nothing at all until the
+# login prompt, so the screen went from the bootloader to a prompt with nothing
+# in between.  A person installing FreeLinX to a machine they cannot see into
+# gets to watch it boot.
 cat >"$ISO/boot/limine/limine.conf" <<EOF
 timeout: 5
 $SERIAL_CONF
+# textmode: Limine hands over a text screen on BIOS instead of a framebuffer.
+# vgacon needs a text screen and fbcon needs a framebuffer, so with this the
+# console exists on BIOS whether or not a KMS driver turns up.  It has no effect
+# on UEFI, where there is no text mode to hand over.
+textmode: yes
 interface_branding: FreeLinX $VERSION base
 
 /FreeLinX $VERSION base (installer: xsetup)
     protocol: linux
     kernel_path: boot():/boot/bzImage
     module_path: boot():/boot/initramfs.img.gz
-    cmdline: rdinit=/init rootfstype=ramfs console=tty0 $SERIAL_ARGS quiet loglevel=2
+    cmdline: rdinit=/init rootfstype=ramfs $SERIAL_ARGS console=tty0
 
 /Rescue shell
     protocol: linux
     kernel_path: boot():/boot/bzImage
     module_path: boot():/boot/initramfs.img.gz
-    cmdline: rdinit=/init rootfstype=ramfs console=tty0 $SERIAL_ARGS flx.rescue=1
+    cmdline: rdinit=/init rootfstype=ramfs $SERIAL_ARGS console=tty0 flx.rescue=1
 EOF
 
 step "composing ${OUT##*/}"

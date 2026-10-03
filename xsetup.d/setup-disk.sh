@@ -392,10 +392,21 @@ cp "$LIMDIR/limine-bios.sys" /mnt/flx_boot/boot/limine-bios.sys
 cp "$LIMDIR/limine-bios.sys" /mnt/flx_boot/limine-bios.sys
 ver=$(sed -n 's/^VERSION_ID="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/os-release 2>/dev/null)
 ver=${ver:-1.0}
+# console=tty0 is last on every line, so /dev/console is the screen.  Every
+# console= gets the kernel's output regardless; the last one is where /init
+# writes, and that is the terminal the operator is sitting at.
+#
+# No quiet loglevel=2: that pair meant "print almost nothing", so an installed
+# system went from the bootloader straight to a login prompt with no boot text
+# in between.  The serial line is kept on both entries so a headless install can
+# still be watched.
 cat >/mnt/flx_boot/limine.conf <<EOF
 # Written by xsetup.
 timeout: 3
 serial: yes
+# textmode: a BIOS boot hands over a text screen rather than a framebuffer, so
+# vgacon has a console.  Ignored on UEFI, which has no text mode to hand over.
+textmode: yes
 interface_branding: FreeLinX $ver
 
 /FreeLinX $ver
@@ -403,14 +414,14 @@ interface_branding: FreeLinX $ver
     kernel_path: boot():/boot/bzImage
     module_path: boot():/boot/initramfs.img.gz
     module_path: boot():/boot/kmods.cpio
-    cmdline: rdinit=/init rootfstype=ramfs console=tty0 console=ttyS0,115200 quiet loglevel=2
+    cmdline: rdinit=/init rootfstype=ramfs console=ttyS0,115200 console=tty0
 
 /Rescue shell
     protocol: linux
     kernel_path: boot():/boot/bzImage
     module_path: boot():/boot/initramfs.img.gz
     module_path: boot():/boot/kmods.cpio
-    cmdline: rdinit=/init rootfstype=ramfs flx.rescue=1 console=tty0 console=ttyS0,115200
+    cmdline: rdinit=/init rootfstype=ramfs flx.rescue=1 console=ttyS0,115200 console=tty0
 EOF
 cp /mnt/flx_boot/limine.conf /mnt/flx_boot/boot/limine.conf
 cp /mnt/flx_boot/limine.conf /mnt/flx_boot/EFI/BOOT/limine.conf

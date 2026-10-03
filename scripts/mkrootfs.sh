@@ -270,8 +270,15 @@ printf '/bin/sh\n/bin/mksh\n' >"$STAGE/etc/shells"
 sed -i -e 's#^\(root:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:\)/bin/sh$#\1/bin/mksh#' \
 	-e 's#^\(live:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:\)/bin/sh$#\1/bin/mksh#' "$STAGE/etc/passwd"
 grep -q '^root:.*:/bin/mksh$' "$STAGE/etc/passwd" || die "root's shell is not mksh"
-sed -i 's#setsid -c /bin/sh -l#setsid -c /bin/mksh -l#' "$STAGE/var/service/shell/run"
-grep -q '/bin/mksh -l' "$STAGE/var/service/shell/run" || die 'the serial shell is not mksh'
+# The console shell has to come from the same file.  This used to sed
+# `setsid -c /bin/sh -l` in var/service/shell/run and then insist the result
+# said /bin/mksh -l.  That run script is now `exec /sbin/flxconsole`, so the sed
+# changed nothing and the grep died: base could not be built at all.  What
+# matters is that one file names the shell for people, so that is what is asked.
+[ -f "$STAGE/sbin/flxconsole" ] ||
+	die 'there is no /sbin/flxconsole to put a login shell on a console with'
+grep -q '/etc/flx-shell' "$STAGE/sbin/flxconsole" ||
+	die 'flxconsole names a shell of its own instead of reading /etc/flx-shell'
 
 # which: the shell has `command -v`; scripts and people still type which.
 printf '%s\n' '#!/bin/sh' \
@@ -332,36 +339,27 @@ grep -q '^sshd:' "$STAGE/etc/shadow" ||
 	printf 'sshd:!:0:0:99999:7:::\n' >>"$STAGE/etc/shadow"
 
 # --- 5. console login --------------------------------------------------------
-# The banner, without the desktop's "right-click the desktop" line.
-for f in etc/issue etc/motd; do
-	[ -f "$STAGE/$f" ] || continue
-	sed -i 's/^ Right-click the desktop for the menu\. Install to disk: flxinstall (as root)\.$/ Install to disk: xsetup (as root).  Manuals: man <command>./' \
-		"$STAGE/$f"
-	grep -q 'desktop' "$STAGE/$f" && die "$f still talks about a desktop"
-done
-
-# What greetd's run script did when there was no desktop, and nothing else.
-mkdir -p "$STAGE/var/service/console"
-cat >"$STAGE/var/service/console/run" <<'EOF'
-#!/bin/sh
-# Console on tty1: a root shell on the live medium, a login prompt once
-# installed (/etc/flx-installed).
-if [ -e /etc/flx-installed ]; then
-    exec /usr/bin/getty -l /usr/libexec/toybox/login 38400 tty1 linux
-fi
-# setsid -c: the tty becomes the shell's controlling terminal (job control,
-# Ctrl-C).  runsv starts us in the service directory, so go home first.
-cd /root 2>/dev/null || cd /
-# There is no login on the live medium, so nothing shows the banner: show it.
-{
-    printf '\033[H\033[2J'
-    cat /etc/motd 2>/dev/null
-    printf ' This is the live system: nothing is kept after a reboot until you\n'
-    printf ' install it with xsetup.\n\n'
-} >/dev/tty1 2>/dev/null
-exec /usr/bin/setsid -c /bin/mksh -l <>/dev/tty1 >&0 2>&1
-EOF
-chmod 755 "$STAGE/var/service/console/run"
+# Nothing to build here.  var/service/shell already is this: it is
+# `exec /sbin/flxconsole`, which opens every console the kernel gave the machine
+# and puts a login shell on each.  greetd, which is what it replaces, is in
+# UNOWNED.
+#
+# There used to be a var/service/console written here as well - "what greetd's
+# run script did when there was no desktop, and nothing else".  It could not
+# work: it exec'd /usr/bin/getty, /usr/libexec/toybox/login and /usr/bin/setsid,
+# and none of the three exist here.  toybox is installed as /bin/toybox with no
+# applet symlinks anywhere, so there is no /usr/bin/getty and no
+# /usr/libexec/toybox/ to put one in; runsvdir restarted it about once a second
+# for the life of the system.  It also wanted /dev/tty1, which flxconsole was
+# already holding a shell on.
+#
+# /etc/issue and /etc/motd are not touched here either.  They arrive from the
+# desktop, and both attempts to clean them up in this script failed: the sed
+# named a line the desktop banner does not have, and the check after it refused
+# the file for still containing the word "desktop", which it did in four other
+# lines.  build-base.sh writes both files outright.
+[ -f "$STAGE/var/service/shell/run" ] ||
+	die 'var/service/shell is gone, so nothing would put a prompt on the screen'
 
 # --- 6. checks ---------------------------------------------------------------
 say '==> checking that every library is still there'
