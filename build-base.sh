@@ -120,20 +120,18 @@ EOF
 # between the boot log and the prompt.  Neither rewrites it, so this is the one
 # place the version is stamped; nothing else will put it there later.
 #
-# The logo is the one 1.0.8 through 1.0.11 shipped, kept byte for byte, trailing
-# spaces and all.  It is the only part of this file that is not text.  Both files
-# now come from one heredoc, which fixes the released /etc/issue: its backslashes
-# were doubled (\\_/ where /etc/motd had \/) so an SSH login drew the art with a
-# double stroke.  The heredoc is unquoted so that $VERSION expands, so each
-# backslash below is written twice and comes out once.
+# The logo is artwork rather than text, and it is the widest and tallest thing
+# on the screen and the only graphic on a machine with no desktop, so it is
+# reproduced as it was given rather than tidied: trailing spaces and all.  Each
+# backslash in it is written twice below and comes out once, because this
+# heredoc is unquoted so that $VERSION expands in it.
 for f in etc/motd etc/issue; do
 	cat >"$STAGE/$f" <<EOF
-  ______              _      _         _  __
- |  ____|            | |    (_)       | |/ /
- | |__ _ __ ___  ___ | |     _ _ __   | ' / 
- |  __| '__/ _ \\/ _ \\| |    | | '_ \\  |  <  
- | |  | | |  __/  __/| |____| | | | | | . \\ 
- |_|  |_|  \\___|\\___||______|_|_| |_| |_|\\_\\
+ _____              _     _      __  __
+|  ___| __ ___  ___| |   (_)_ __ \\ \\/ /
+| |_ | '__/ _ \\/ _ \\ |   | | '_ \\ \\  / 
+|  _|| | |  __/  __/ |___| | | | |/  \\ 
+|_|  |_|  \\___|\\___|_____|_|_| |_/_/\\_\\
 
  FreeLinX $VERSION base
 

@@ -102,22 +102,38 @@ else
 fi
 
 echo '== the logo is still there =='
-# Shape only.  Six lines, an underscore rule first and a backslash rule last,
-# which is what makes it the FreeLinX logo rather than any six lines.
-if [ "$(wc -l <"$STAGE/etc/motd")" -ge 6 ]; then
-	ok 'the banner is long enough to hold the logo'
+# Shape, not a copy.  The logo is artwork and not this file's to change, so what
+# is asked is that it is still artwork: a block of lines above the first blank
+# line, opening with an underscore rule and closing with a backslash one.  A
+# copy of the art kept here would fail the day the art is replaced, which is
+# the one time it should not.
+ART=$TMP/art
+awk 'NF==0{exit} {print}' "$STAGE/etc/motd" >"$ART"
+lines=$(wc -l <"$ART")
+if [ "$lines" -ge 4 ]; then
+	ok "the logo is $lines lines of art above the first blank line"
 else
-	no "the banner is only $(wc -l <"$STAGE/etc/motd") lines; the logo is gone"
+	no "the logo is $lines lines; there is no art above the banner"
 fi
-if sed -n '1p' "$STAGE/etc/motd" | grep -q '^  ______'; then
-	ok 'the logo starts with its underscore rule'
+if sed -n '1p' "$ART" | grep -q '^ *_\{2,\}'; then
+	ok 'the logo opens with its underscore rule'
 else
-	no 'the logo is not where it was'
+	no "the logo does not open with an underscore rule: $(sed -n '1p' "$ART")"
 fi
-if sed -n '6p' "$STAGE/etc/motd" | grep -q '|\\_\\$'; then
-	ok 'the logo ends with its backslash rule'
+# The last line of the logo ends in the backslash rule: _ then a backslash.
+if sed -n "${lines}p" "$ART" | grep -q '_\\$'; then
+	ok 'the logo closes with its backslash rule'
 else
-	no 'the logo is cut short or its last line is wrong'
+	no "the logo does not close with its backslash rule: $(sed -n "${lines}p" "$ART")"
+fi
+# A tab in the art is eight columns wherever it falls, so the rule that ends one
+# line stops lining up with the one below it.  There is no reason for the logo
+# to contain one, and it is the sort of thing that arrives by pasting.
+if grep -q "$(printf '\t')" "$ART"; then
+	no 'the logo has a tab in it, which will not line up on a terminal'
+	grep -n "$(printf '\t')" "$ART" | sed 's/^/       /'
+else
+	ok 'no tab in the logo'
 fi
 
 echo '== it says how to install =='
