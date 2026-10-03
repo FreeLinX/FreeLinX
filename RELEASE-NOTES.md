@@ -1,185 +1,111 @@
-# FreeLinX base 1.0.11
+# FreeLinX base 1.0.12
 
-```
-freelinx-base-x86_64.iso   279 MB   BIOS and UEFI
-sha256  dd79fc63fe09f6bda2cd333bcc1ee41251dff722bffeda5c000eb925bf4c1205
-```
-
-**xsetup is the installer again.** `flxinstall` is no longer on the base image.
-
-xsetup is a manual installer: thirteen steps, one question at a time, and an
-interrupted install carries on where it stopped (`xsetup --status`,
-`xsetup --reset STEP`).
-
-```
-setup-keymap  setup-hostname  setup-interfaces  setup-passwd  setup-timezone
-setup-proxy   setup-ntp       setup-apkrepos    setup-user    setup-sshd
-setup-disk    setup-lbu       setup-apkcache
-```
-
-What had to change so that every step does what it says:
-
-- **setup-disk** installs what FreeLinX boots: the system image on the ESP
-  (the running system, with everything the earlier steps set), persistent
-  `/usr /etc /var /root /bin /sbin /lib` on FLX_SYS, `/home` on FLX_HOME, both
-  pinned by UUID, and Limine for UEFI and BIOS. Before, it copied the system to
-  an ext4 root that `/init` never switched to, so the installed disk booted back
-  into the live system. The "data" mode is gone, because `/init` never mounted
-  its partition.
-- **setup-passwd** and **setup-user** hid nothing: passwords were echoed on the
-  screen. They are not shown now; `stty` is on the image for that. Both used
-  `flxpasswd` and `flxuseradd`, which the image does not have. New users get mksh, wheel (doas) and the device
-  groups, and their home moves onto FLX_HOME.
-- **setup-user** no longer rewrites `/etc/doas.conf`, which dropped the
-  image's other rules.
-- **setup-interfaces** writes where the system reads: a static address or an
-  ignored interface goes into `/etc/dhcpcd.conf`, and Wi-Fi goes to the
-  networks the flxwifi service connects to at boot (0600). It used to write
-  `/etc/network/interfaces`, which nothing reads.
-- **setup-sshd** and **setup-ntp** have the service definitions they enable,
-  and sshd has its config, privilege-separation user and `/var/empty`.
-- **setup-timezone** writes `/etc/TZ`, which the system reads.
-- **setup-lbu** and **setup-apkcache** say what is kept and where, instead of
-  asking for a disk to put configuration on that nothing used.
-
-Tested in QEMU, BIOS and UEFI: `test-xsetup-qemu.sh` answers all 13 steps, then
-boots the disk with the medium removed and checks it:
-
-- the user and root log in, the user has mksh and wheel
-- the hostname and the time zone are the ones chosen
-- sshd and ntpd run, the partitions are pinned, the console is a framebuffer
-- a file in the user's home survives another reboot
-
-# FreeLinX base 1.0.10
-
-```
-freelinx-base-x86_64.iso   279 MB   BIOS and UEFI
-sha256  0a4900402a8c53d87e9af14726f157ef15694007576918234b7e3b295905f030
-```
-
-More fixes found by using 1.0.9:
-
-- **A welcome on the live console.** tty1 shows the FreeLinX banner, the
-  version, how to install and where to find help. It also says this is the
-  live system, where nothing is kept until you install it.
-- **Arrow keys, history and Tab completion.** The NetBSD `/bin/sh` is built
-  without line editing, so the arrows printed `^[[A`. The login shell is now
-  `mksh` (MirBSD Korn shell) for root, for the users `flxinstall` creates, and
-  on the consoles. `/bin/sh` stays as it was for scripts.
-- **`cc` compiles.** tcc was shipped without libc headers, start files or its
-  runtime, so even hello world failed on `stdio.h` and `crt1.o`. It now has
-  musl's headers, the kernel headers and `libtcc1.a`.
-- **`file` works.** Its magic database came from an older version and every
-  call failed with `not a multiple of 432`.
-
-Tested in QEMU: the banner and arrow-key history on tty1, Tab completion, a C
-program compiled and run on the live system and on an installed one, the new
-user's shell, and `file`.
-
-# FreeLinX base 1.0.9
-
-```
-freelinx-base-x86_64.iso   278 MB   BIOS and UEFI
-sha256  ce6889c3afc43c208e63f7dc4417c41af8cb54706d7578502988044ef488d720
-```
-
-A fix for the console of 1.0.8, found by running it:
-
-- **The live shell on tty1 had no controlling terminal.** It printed
-  `sh: can't access tty; job control turned off`, and Ctrl-C did nothing. It
-  also started in `/var/service/console` instead of `/root`. It now runs under
-  `setsid -c`, from `/root`. The ttyS1 shell had the same fault and is fixed
-  the same way.
-- **ntpd and dbus wrote on the console** in the middle of what you were typing
-  (`ntp engine ready`, `peer ... now valid`, the bus address). ntpd logs to
-  `/var/log/ntpd.log` now, and dbus no longer prints its address.
-
-Tested in QEMU: Ctrl-C stops a running command, `jobs` and `kill %1` work, the
-shell starts in `/root`, and tty1 shows nothing but the shell.
-
-Everything else is as in 1.0.8, below.
-
-# FreeLinX base 1.0.8
-
-The first release of FreeLinX base: FreeLinX with no desktop. You get a shell
-on the console, and `xpkg` for everything else.
-
-```
-freelinx-base-x86_64.iso   278 MB   BIOS and UEFI
-sha256  faefb97e6762ef3fb6909dab422990a6a2042a586c3e39202a5e7f6ab5a0be5c
-```
-
-## What it is
-
-It is the system of the FreeLinX desktop release with the desktop taken out:
-
-- Linux 6.18.54 LTS, built with clang
-- musl, the NetBSD userland, runit, mdevd
-- OpenSSL 3.5, OpenSSH 10.5, curl 8.22, git, tmux, htop, nnn, vim (also `vi`)
-- dhcpcd, wpa_supplicant and `flxwifi` for WiFi
-- `man` (mandoc) with about 200 manual pages, `less`, `ip`, `lsof`
-- `xpkg`, with the signed repository of 425 packages
-
-No GNU code. Every one of the 619 programs and libraries in the image passes
-`check-nognu`. The build refuses to produce an image when one does not.
-
-## Installing
-
-Boot the ISO. You get a root shell on tty1. Run:
+**The installer works.** 1.0.11 could not set a password or create a user: both
+`setup-passwd` and `setup-user` began with
 
 ```sh
-flxinstall
+need_cmd flxhash 'flxhash'
 ```
 
-It asks for the language, keyboard, time zone, hostname, root password, a user
-and WiFi, and then erases the disk you choose. The installed system has:
+and there is no `flxhash`. Not in this repository, not in `ports`, not on the
+1.0.11 image. Both steps stopped on their first line, which is steps 4 and 9 of
+thirteen, so the two steps that make an installed system reachable at all were
+the two that could not run. Passwords are hashed with `flxpasswd` now, which is
+the port that exists, is on the image, and takes the password on stdin so it is
+not visible in `ps`.
 
-- the system image on the ESP, booted by Limine on BIOS and UEFI
-- `/usr /etc /var /root /bin /sbin /lib` on the FLX_SYS partition, so what you
-  install and configure survives a reboot
-- `/home` on its own partition
-- a login prompt on tty1
+**You can watch it boot.** 1.0.11 booted with
 
-To upgrade later, boot a newer ISO and run `flxupgrade`.
+```
+cmdline: rdinit=/init rootfstype=ramfs console=tty0  quiet loglevel=2
+```
 
-## Fixed on the way
+`quiet` sets the console level to `KERN_ERR` and `loglevel=2` clamps it lower.
+On a successful boot there is nothing at that level, so the screen went from the
+Limine menu to a prompt with nothing in between. Neither word is on any command
+line now, and the boot log is on the screen where a person is sitting.
 
-These fixes are also in the desktop:
+`console=tty0` is now last on all six command lines this tree writes
+(`build-base.sh`, `xsetup.d/setup-disk.sh`, `flxinstall`). `console=` is
+last-one-wins for `/dev/console`, so the last one decides where `/init` and
+everything it starts write. It was the serial line, which on a machine with
+nothing plugged into it is the wrong place for the installer's questions.
 
-- **The console was black on most graphics cards.** It worked only where a
-  built-in driver took the screen (Intel, virtio). On AMD, NVIDIA and plain VGA
-  the kernel had no console driver until a GPU module loaded. Linux now uses the
-  framebuffer the firmware hands over (`simpledrm`), on BIOS and on UEFI.
-- **The text installer did not work interactively.** Its menus were printed
-  into the variable that should hold the answer: nothing was shown, and the
-  install stopped at the first question. The hostname question was always
-  skipped, so every system was called FreeLinX.
-- **WiFi passwords were visible to every user.** They were passed to
-  `wpa_cli` on its command line, which `ps` shows. They now go into the
-  supplicant's own config file, readable by root only. Saved networks reconnect
-  at boot, and passwords with quotes, spaces or backslashes work.
-- The prompt shows the real hostname.
+**Ctrl-C works at the console.** It did not. `flxconsole` started the shell as a
+child of a runit service, which has no controlling terminal, so on every boot:
+
+```
+/bin/mksh: No controlling tty: open /dev/tty: No such device or address
+/bin/mksh: warning: won't have full job control
+```
+
+and under those two lines Ctrl-C reached nothing - no terminal to raise SIGINT
+from, no foreground job to interrupt. The shell also opened in the service
+directory rather than `/root`. Both services `flxconsole` replaced did `cd /root`
+and `setsid -c` for exactly this, with the reason written down, so losing it was
+a regression rather than a simplification. `flxconsole` does both again.
+
+**The banner, on a clear screen.** The banner is written after clearing, so it
+is not pushed off the bottom of the terminal by the boot log above it. The log
+is still on the serial line, which is where it is meant to be read. `/etc/issue`
+and `/etc/motd` are written by `build-base.sh` now rather than edited out of the
+desktop's Plan 9 Rio banner, and they carry the same bytes - which fixes a
+defect in 1.0.11, where `/etc/issue` had doubled backslashes and the logo drew
+with a double stroke over SSH while `/etc/motd` drew correctly.
+
+**base could not be built from a fresh clone.** Three separate failures, none of
+them reachable from a test, which is why they survived:
+
+- `build-base.sh` stamped the version into `/etc/issue` with a sed for
+  ` FreeLinX 1.0.x` and then died unless the result was exactly
+  ` FreeLinX $VERSION`. The desktop's banner says
+  ` FreeLinX 1.0 (Rio Workstation Edition) - Static Musl / Linux 6.6`, so it
+  never matched and the build stopped before it made an ISO.
+- `mkrootfs.sh` sed `setsid -c /bin/sh -l` in `var/service/shell/run` and then
+  insisted the result said `/bin/mksh -l`. That run script is now
+  `exec /sbin/flxconsole`, so the sed changed nothing and the check died.
+- `mkrootfs.sh` wrote a `var/service/console` that exec'd `/usr/bin/getty`,
+  `/usr/libexec/toybox/login` and `/usr/bin/setsid`. Two of those three exist and
+  one does not, so the service restart-looped once a second on a live medium and
+  would have restart-looped forever once installed. It also competed with
+  `flxconsole` for `/dev/tty1`. Deleted: `flxconsole` opens every console the
+  kernel gave the machine, which is what it was for.
 
 ## Tested
 
-In QEMU/KVM, 2 GB RAM:
+In QEMU, BIOS, on an image built from a clean FreeLinX-desk tree:
 
-- **BIOS:** live boot, `flxinstall` with presets, boot from the disk, login,
-  `xpkg install` over HTTPS, a file and a package still there after reboot.
-- **UEFI (OVMF):** live boot, `flxinstall` answered by hand with no presets,
-  boot from the disk, login as root and as the user, `doas`.
-- **Console:** framebuffer console with bochs VGA, and with `simpledrm` alone
-  (`ramfb`, no GPU driver).
-- **WiFi:** `mac80211_hwsim` + `hostapd`, WPA2, an SSID and a passphrase with
-  quotes, a space and a backslash.
+- the boot log is on the screen, then a cleared screen with the banner and a
+  prompt
+- no `mksh` controlling-tty warning, and the prompt is in `/root`
+- `setup-passwd` and `setup-user` run, hashing with `flxpasswd`
 
-Not tested yet: real hardware.
+Not re-run for this release, and it should be before the tag is trusted:
+`test-xsetup-qemu.sh` in both BIOS and UEFI, which drives all thirteen steps and
+then boots the installed disk. It needs an ISO built with `SERIAL=1`, and
+1.0.11 was published from a `SERIAL=0` build, so **the released image was not the
+image the test suite drives.**
 
-## Known limits
+## Still known
 
-- Building base needs a built FreeLinX-desk tree and the ports work tree, which
-  are not in git. It cannot yet be built from a fresh clone.
-- `vi` is vim. The nvi port crashes on start and needs Berkeley db1 to be
-  rebuilt.
-- `xsetup`, the older installer in this repository, is not on the ISO. See the
-  README.
+- **A kernel message can land on the prompt.** The kernel writes at the cursor,
+  and the screen is both where the boot log appears and where the shell is, so a
+  message printed after the prompt is drawn is written onto it and Enter is needed
+  to clear it. Usually `random: crng init done`. It needs the prompt held back
+  until the kernel goes quiet, which needs `/dev/kmsg`; it was not readable on the
+  image this was tested on.
+- **`CONFIG_SYSFB_SIMPLEFB` matters.** `RELEASE.md` says so - if the console
+  check fails with `dummy device`, the kernel has lost it and the screen is
+  black. The `FreeLinX/kernel` config at 6.6.157 has it off.
+- **base still needs a built FreeLinX-desk tree.** `stack/work/pkgs`, the host
+  `xpkg`, the musl source tree, the Limine `bios-install` tool and the firmware
+  tarball are not in git.
+
+## Not in this release
+
+- **The 13-step install has not been run end to end** since 1.0.9. Steps 4 and 9
+  are fixed and individually checked; the other eleven are unchanged from 1.0.11.
+
+---
+
+Supersedes [1.0.11](https://github.com/FreeLinX/FreeLinX-base/releases/tag/v1.0.11).
