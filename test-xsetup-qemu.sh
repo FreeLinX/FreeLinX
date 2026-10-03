@@ -8,8 +8,10 @@
 #   sh test-xsetup-qemu.sh [--uefi] [ISO]
 #
 # ISO must be built with SERIAL=1 (sh build-base.sh): the test talks to the
-# system on its second serial port, where the live medium has a root shell and
-# an installed system a login prompt.  Default: out/freelinx-base-serial.iso.
+# system on its serial port, ttyS0, where flxconsole gives the live medium a
+# root shell and an installed system a login prompt.  The same port carries the
+# kernel log, which QEMU also writes to console.log for wait_for.
+# Default: out/freelinx-base-serial.iso.
 #
 #   1. boot the ISO with an empty 12 GiB disk
 #   2. run xsetup and answer every one of its 13 steps, as a person would:
@@ -58,12 +60,13 @@ vm() {
 	qemu-system-x86_64 $KVM -m 2048 -smp 2 $FW \
 		-drive "file=$W/disk.qcow2,if=virtio,format=qcow2" "$@" \
 		-vga std -display none -nic user,model=virtio-net-pci \
-		-serial "file:$W/console.log" -serial "unix:$W/sh.sock,server,nowait" \
+		-chardev "socket,id=s0,path=$W/sh.sock,server=on,wait=off,logfile=$W/console.log" \
+		-serial chardev:s0 \
 		-daemonize -pidfile "$W/pid" || exit 2
 }
 stop() { kill "$(cat "$W/pid")" 2>/dev/null; sleep 2; }
 
-# serial PYTHON-ARGS... - talk to the guest's ttyS1 (see the helper below)
+# serial PYTHON-ARGS... - talk to the guest's ttyS0 (see the helper below)
 serial() { python3 "$W/serial.py" "$W/sh.sock" "$@"; }
 cat >"$W/serial.py" <<'EOF'
 import socket, sys, time
@@ -88,6 +91,8 @@ if mode == "run":            # run CMD on the live root shell, wait for it
 elif mode == "ping":         # does the live root shell answer?
     s.sendall(b"echo pi''ng-ok\r")
     print(rd(3, b"ping-ok\r\n"))
+elif mode == "probe":        # what does an idle console answer with?
+    s.sendall(b"\r"); print(rd(4))
 elif mode == "login":        # log in as USER/PASS, run CMD, log out
     user, pw, cmd = sys.argv[3], sys.argv[4], sys.argv[5]
     s.sendall(b"\r"); rd(3, b"login:")
@@ -148,6 +153,10 @@ wait_for 'FLX_SYS persistent system engaged' 180 && pass=$((pass + 1)) &&
 	echo '  ok   FLX_SYS engaged at boot' ||
 	{ fail=$((fail + 1)); echo '  FAIL FLX_SYS engaged at boot'; }
 sleep 15
+# An installed system must ask: a shell here would make the root password
+# that setup-passwd just set mean nothing.
+out=$(serial probe)
+check 'the console asks for a login' "$out" 'login:'
 out=$(serial login alice al1cepw 'echo "who=$(id -un) sh=$0"; id; hostname; cat /etc/TZ; touch /home/alice/kept; ls /sys/firmware/efi >/dev/null 2>&1 && echo fw=UEFI || echo fw=BIOS')
 check 'alice can log in' "$out" 'who=alice'
 check "alice's shell is mksh" "$out" 'sh=-/bin/mksh'

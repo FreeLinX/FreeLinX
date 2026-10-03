@@ -24,11 +24,13 @@
 #
 # Environment:
 #   DESK      the FreeLinX-desk checkout   (default: ../Desktop-test)
+#   FLXSRC    the FreeLinX/src checkout    (default: ../src)
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 DESK=${DESK:-$ROOT/Desktop-test}
+FLXSRC=${FLXSRC:-$ROOT/src}
 
 STAGE=
 while [ $# -gt 0 ]; do
@@ -100,6 +102,23 @@ say "==> copying $SRC"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 (cd "$SRC" && tar -cf - .) | (cd "$STAGE" && tar -xf -)
+
+# --- 1b. the console and account tools from FreeLinX/src --------------------
+# The desktop tree has none of these: its consoles are greetd and a serial
+# shell.  flxconsole puts a shell on the live medium's consoles and a login on
+# an installed system's; setup-passwd and setup-user need flxpasswd and
+# flxuseradd.  Taken from the src repository, so the image is built from pushed
+# trees and not from files copied in by hand.
+for f in sbin/flxconsole bin/flxpasswd bin/flxuseradd var/service/shell/run; do
+	if [ "${ALLOW_DIRTY:-0}" != 1 ] && git -C "$FLXSRC" rev-parse >/dev/null 2>&1; then
+		[ -z "$(git -C "$FLXSRC" status --porcelain -- "rootfs/$f")" ] ||
+			die "uncommitted changes in $FLXSRC/rootfs/$f (ALLOW_DIRTY=1 to build anyway)"
+	fi
+	[ -f "$FLXSRC/rootfs/$f" ] || die "no $f in $FLXSRC/rootfs (FLXSRC= the FreeLinX/src checkout)"
+	cp -p "$FLXSRC/rootfs/$f" "$STAGE/$f"
+done
+grep -q flx-installed "$STAGE/sbin/flxconsole" ||
+	die 'flxconsole gives an installed system a shell instead of a login'
 
 # --- 2. register -------------------------------------------------------------
 # ncurses and netsurf are transitional packages only, as in build-image.sh.
@@ -297,6 +316,11 @@ chmod 755 "$STAGE/usr/bin/which"
 # /usr/libexec/xsetup (it finds lib/ and xsetup.d/ next to itself) and
 # /sbin/xsetup runs it.
 rm -f "$STAGE/sbin/flxinstall"
+# The src rootfs carries a /usr/sbin/xsetup of its own that looks for the
+# installer in /installer on a medium mounted at /media/flx.  Base has no such
+# directory, and /usr/sbin is ahead of /sbin on PATH, so with it left in place
+# `xsetup` said "the FreeLinX medium is not in the drive" and installed nothing.
+rm -f "$STAGE/usr/sbin/xsetup" "$STAGE/usr/bin/xsetup"
 X=$STAGE/usr/libexec/xsetup
 rm -rf "$X"
 mkdir -p "$X/lib" "$X/xsetup.d"
