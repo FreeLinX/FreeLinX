@@ -119,17 +119,29 @@ EOF
 # /etc/motd to every console it opens, which on base is the only thing on screen
 # between the boot log and the prompt.  Neither rewrites it, so this is the one
 # place the version is stamped; nothing else will put it there later.
+#
+# The logo is the one 1.0.8 through 1.0.11 shipped, kept byte for byte, trailing
+# spaces and all.  It is the only part of this file that is not text.  Both files
+# now come from one heredoc, which fixes the released /etc/issue: its backslashes
+# were doubled (\\_/ where /etc/motd had \/) so an SSH login drew the art with a
+# double stroke.  The heredoc is unquoted so that $VERSION expands, so each
+# backslash below is written twice and comes out once.
 for f in etc/motd etc/issue; do
 	cat >"$STAGE/$f" <<EOF
+  ______              _      _         _  __
+ |  ____|            | |    (_)       | |/ /
+ | |__ _ __ ___  ___ | |     _ _ __   | ' / 
+ |  __| '__/ _ \\/ _ \\| |    | | '_ \\  |  <  
+ | |  | | |  __/  __/| |____| | | | | | . \\ 
+ |_|  |_|  \\___|\\___||______|_|_| |_| |_|\\_\\
+
  FreeLinX $VERSION base
 
- A shell, a package manager, and no desktop.
+ Live system: nothing is kept until it is installed.
 
- Nothing on this medium is kept until it is installed to a disk:
-
-    xsetup      install FreeLinX, one question at a time
-
- Manuals: man <command>.
+ Install to disk: xsetup (as root).  Manuals: man <command>.
+ Packages: xpkg install <name>, xpkg list.
+ Bugs: https://github.com/FreeLinX/FreeLinX/issues
 EOF
 	grep -q "^ FreeLinX $VERSION base\$" "$STAGE/$f" || die "wrote $f without its version line"
 done
