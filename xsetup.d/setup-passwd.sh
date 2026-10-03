@@ -18,7 +18,7 @@ if ! command -v choose >/dev/null 2>&1; then
 	. "$(dirname "$0")/../lib/ui.sh"
 fi
 need_root
-need_cmd flxhash 'flxhash'
+need_cmd flxpasswd 'the base/flxpasswd port'
 
 [ -f /etc/shadow ] || die 'there is no /etc/shadow, so there is no root account to set'
 
@@ -43,9 +43,6 @@ again=$(ask_secret 'Root password again')
 [ "$pw" = "$again" ] || die 'the two passwords did not match'
 
 info 'setting the root password'
-# The password goes in on stdin, not argv: anything in argv is visible to
-# every process on the machine through ps.  -e is stdin mode, -r is the
-# minimum length, which this step has already asked about.
 set_password root "$pw"
 pw=''
 again=''

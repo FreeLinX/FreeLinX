@@ -552,6 +552,95 @@ else
 	printf '  (no %s, skipping)\n' "$_USR"
 fi
 
+# --- set_password, which needs an /etc it can write ----------------------------
+#
+# set_password writes /etc/shadow and calls flxpasswd, which insists on being
+# root.  Both are arranged here rather than mocked out, because the thing being
+# checked is the pair of them: a hash made by something other than the C library
+# is exactly what this must not do, and a stub would have been perfectly happy
+# to return one.
+#
+# unshare -r -m gives this block uid 0 and a private mount table, so a scratch
+# directory can be bound over /etc without touching the host's.  Without it the
+# checks below would either fail as permission errors or, worse, rewrite the
+# host's own passwords.
+echo '== set_password =='
+SHADOW_TMP=$(mktemp -d)
+if ! unshare -r -m true 2>/dev/null; then
+	printf '  (no unshare -r -m, skipping)\n'
+	SHADOW_TMP=
+else
+	trap 'rm -rf "$DISPATCH_TMP" "$SHADOW_TMP"' EXIT INT TERM
+	# bob is in passwd but not in shadow, which is the state setup-user leaves
+	# the account in: the passwd line is written first, then the password asked
+	# for, so the shadow line may or may not exist yet.
+	cat >"$SHADOW_TMP/passwd" <<'EOF'
+root:x:0:0:root:/root:/bin/sh
+alice:x:1000:1000:alice:/home/alice:/bin/sh
+bob:x:1001:1001:bob:/home/bob:/bin/sh
+EOF
+	cat >"$SHADOW_TMP/shadow" <<'EOF'
+root:!::0:99999:7:::
+alice:!::0:99999:7:::
+EOF
+	chmod 666 "$SHADOW_TMP/passwd" "$SHADOW_TMP/shadow"
+
+	cat >"$SHADOW_TMP/run.sh" <<EOF
+set -u
+mount --bind "$SHADOW_TMP" /etc || exit 1
+PATH="$ROOTFS/bin:$ROOTFS/usr/bin:$ROOTFS/sbin:$ROOTFS/usr/sbin:\$PATH"
+export PATH
+. "$PWD/lib/ui.sh"
+set_password alice 'hunter2'
+echo "after-set:"
+awk -F: '\$1 == "alice" { print \$2 }' /etc/shadow
+set_password alice ''
+echo "after-empty:"
+awk -F: '\$1 == "alice" { print \$2 }' /etc/shadow
+# An account with no /etc/shadow line: setup-user writes the passwd line
+# first and asks for the password after, so the shadow line has to be made
+# or flxpasswd refuses to touch the account at all.
+set_password bob 'pw12345'
+echo "bob:"
+awk -F: '\$1 == "bob" { print \$2 }' /etc/shadow
+EOF
+	OUT=$(unshare -r -m sh "$SHADOW_TMP/run.sh" 2>&1)
+	_hash=$(printf '%s\n' "$OUT" | sed -n '/^after-set:$/,$p' |
+		sed -n '2p')
+	_empty=$(printf '%s\n' "$OUT" | sed -n '/^after-empty:$/,$p' |
+		sed -n '2p')
+	_bob=$(printf '%s\n' "$OUT" | sed -n '/^bob:$/,$p' | sed -n '2p')
+
+	# crypt(3) in musl always says $6$ for SHA-512, and flxpasswd's own check
+	# refuses anything else, so this is checking the value actually landed.
+	case $_hash in
+	'$6$'*) pass=$((pass+1)); printf '  ok   the hash is a crypt(3) SHA-512 hash\n' ;;
+	'') fail=$((fail+1)); printf '  FAIL set_password produced no hash; output was:\n%s\n' "$OUT" ;;
+	*) fail=$((fail+1)); printf '  FAIL the hash is not a SHA-512 crypt hash: [%s]\n' "$_hash" ;;
+	esac
+	ok_is 'an empty password leaves the field empty' "$_empty" ''
+	case $_bob in
+	'$6$'*) pass=$((pass+1)); printf '  ok   an account with no shadow line gets one\n' ;;
+	*) fail=$((fail+1)); printf '  FAIL bob: want a $6$ hash, got [%s]\n' "$_bob" ;;
+	esac
+
+	# The password must not reach a command line, where ps would show it.
+	case $OUT in
+	*hunter2*) fail=$((fail+1)); printf '  FAIL the password came back in the output\n' ;;
+	*) pass=$((pass+1)); printf '  ok   the password is not echoed\n' ;;
+	esac
+
+	# Reintroducing the bug that was here: hashing in the installer with
+	# something that is not the C library.  A second SHA-512 crypt is a coin
+	# toss on whether it agrees with the one that will verify the hash, so this
+	# asserts the hash came out of flxpasswd rather than merely looking right.
+	if grep -q flxpasswd "$PWD/lib/ui.sh"; then
+		pass=$((pass+1)); printf '  ok   set_password hashes with flxpasswd\n'
+	else
+		fail=$((fail+1)); printf '  FAIL set_password does not use flxpasswd\n'
+	fi
+fi
+
 echo '== a user name that is typed in upper case is folded, not refused =='
 # The rule used to allow only a-z0-9_- and die on the rest, so typing Kanan
 # ended the installer.  Lower case is right to store and wrong to insist on.

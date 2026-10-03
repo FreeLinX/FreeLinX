@@ -56,7 +56,7 @@ if awk -F: -v u="$name" '$1 == u { found = 1 } END { exit !found }' /etc/passwd;
 	die "the account $name already exists"
 fi
 
-need_cmd flxhash 'flxhash'
+need_cmd flxpasswd 'the base/flxpasswd port'
 
 info "creating $name"
 
@@ -84,11 +84,10 @@ chmod 700 "/home/$name"
 
 pw=$(ask_secret "Password for $name (nothing is shown)")
 if [ -z "$pw" ]; then
-	warn "$name will have an empty password, which allows anyone who reaches"
-	warn 'this machine to log in as them. Set one later with passwd if unsure.'
+	warn "$name will have no password, which lets anyone who reaches this"
+	warn 'machine log in as them. flxpasswd sets one, from a root shell:'
+	warn "    printf '%s:the-password\n' $name | flxpasswd -e"
 	set_password "$name" ''
-	warn "$name has no password. Anyone who reaches this machine can log"
-	warn 'in as them. Set one with: passwd '"$name"
 else
 	set_password "$name" "$pw"
 	pw=''

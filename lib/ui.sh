@@ -106,29 +106,56 @@ ask_secret() {
 	_reply=
 }
 
-# set_password USER PASSWORD - store PASSWORD's SHA-512 crypt hash for USER
-# in /etc/shadow (an empty PASSWORD leaves the account without one).  The
-# password reaches flxhash on stdin, never on a command line.
+# set_password USER PASSWORD - store PASSWORD's hash for USER in /etc/shadow.
+# An empty PASSWORD leaves the account without one, which is passwordless
+# login, so every caller warns about it out loud before it gets here.
+#
+# The hash is made by flxpasswd, which calls the C library's crypt(3) - the
+# same code that will verify it at the login prompt.  Hashing it here instead
+# would be a second implementation of SHA-512 crypt, and whether the two agree
+# is a coin toss.  This used to call a `flxhash` that exists in no repository
+# and in no image, so setup-passwd and setup-user both stopped at need_cmd
+# before asking anything and no install ever set a password.
+#
+# The password reaches flxpasswd on stdin, never on a command line, where any
+# process on the machine could read it out of ps.  -m 0 is no minimum length:
+# setup-passwd has already asked about short passwords and setup-user does not
+# care, and a second, disagreeing length rule here would only confuse.
+#
+# Two things flxpasswd will not do, both on purpose: it will not add a missing
+# /etc/shadow line, and it will not store an empty password.  They are done
+# here, and only these two.
 set_password() {
-	if [ -n "$2" ]; then
-		_h=$(printf '%s\n' "$2" | flxhash - 2>/dev/null) || _h=
-		case $_h in
-		'$6$'*) ;;
-		*) die "flxhash could not hash the password for $1" ;;
-		esac
-	else
-		_h=
+	if [ -z "$2" ]; then
+		_shadow_hash "$1" ''
+		return 0
 	fi
-	_day=$(( $(date +%s) / 86400 ))
-	if grep -q "^$1:" /etc/shadow; then
-		awk -F: -v OFS=: -v u="$1" -v h="$_h" -v d="$_day" \
-			'$1 == u { $2 = h; $3 = d } { print }' /etc/shadow >/etc/shadow.new
-	else
-		{ cat /etc/shadow; printf '%s:%s:%s:0:99999:7:::\n' "$1" "$_h" "$_day"; } >/etc/shadow.new
+	if ! grep -q "^$1:" /etc/shadow; then
+		# A locked line, not an empty hash field: if flxpasswd fails
+		# next the account is locked rather than passwordless, which is
+		# the direction a failure has to go in.  Field 3 is 0 because
+		# flxuseradd writes 0 and nothing in this image reads it -
+		# there is no login.defs, no chage and no PAM.
+		printf '%s:!::0:99999:7:::\n' "$1" >>/etc/shadow
+	fi
+	printf '%s:%s\n' "$1" "$2" | flxpasswd -e -m 0 >/dev/null ||
+		die "flxpasswd did not set the password for $1"
+	_password=$2
+	_password=
+}
+
+# _shadow_hash USER HASH - put HASH in field 2 of USER's /etc/shadow line,
+# adding the line if it is not there.  Only for the empty-hash case in
+# set_password; a real hash is flxpasswd's job, because making one is
+# crypt(3)'s and this file must not grow a second opinion about it.
+_shadow_hash() {
+	awk -F: -v OFS=: -v u="$1" -v h="$2" \
+		'$1 == u { $2 = h } { print }' /etc/shadow >/etc/shadow.new
+	if ! grep -q "^$1:" /etc/shadow.new; then
+		printf '%s:%s::0:99999:7:::\n' "$1" "$2" >>/etc/shadow.new
 	fi
 	cat /etc/shadow.new >/etc/shadow && rm -f /etc/shadow.new
 	chmod 600 /etc/shadow
-	_h=
 }
 
 ask_yes() {
