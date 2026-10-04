@@ -37,8 +37,14 @@
 #   DESK      the FreeLinX-desk checkout   (default: ../Desktop-test)
 #   REPO      package repository URL       (default: the FreeLinX repository)
 #   XPKG      a host xpkg command          (default: the desk's, or xpkg on PATH)
-#   SYSROOT   musl sysroot, for tcc's crt*.o and kernel headers
-#   MUSL_SRC  configured musl source tree, for tcc's libc headers
+#   SYSROOT   musl sysroot, for tcc's crt*.o and libc headers.  Either layout
+#             the toolchain makes: $SYSROOT/{include,lib} or a /usr-shaped
+#             $SYSROOT/usr/{include,lib}.  Default: the desktop stack's, else
+#             ~/freelinx/toolchain/x86_64-linux-musl as toolchain/README.md
+#             builds it.
+#   MUSL_SRC  configured musl source tree, for tcc's libc headers.  Optional:
+#             without one the sysroot's own headers are used, which are the
+#             same files.
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -68,7 +74,33 @@ fi
 SRC=$SRC_GIT/src/rootfs
 [ "$SRC_GIT" = "$FLXSRC" ] && SRC=$FLXSRC/rootfs
 PKGS=$DESK/stack/work/pkgs
-SYSROOT=${SYSROOT:-$DESK/stack/work/sysroot}
+
+# The musl sysroot: tcc needs musl's headers, the kernel UAPI headers and
+# musl's start files, and the toolchain checkout is the only thing that has
+# them.  Two layouts are real and the toolchain README says which one it makes:
+# it configures musl with --prefix=$SYSROOT, which puts the headers in
+# $SYSROOT/include and the objects in $SYSROOT/lib, while the desktop stack's
+# sysroot is a /usr-shaped tree with usr/include and usr/lib.  Hard-coding the
+# second is why a base built from this repository failed with "cannot stat
+# .../usr/include/linux" on every machine that had followed the toolchain's own
+# instructions.
+if [ -z "${SYSROOT:-}" ]; then
+	for c in "$DESK/stack/work/sysroot" "$HOME/freelinx/toolchain/x86_64-linux-musl"; do
+		if [ -d "$c/usr/include" ] || [ -d "$c/include" ]; then
+			SYSROOT=$c
+			break
+		fi
+	done
+fi
+[ -n "${SYSROOT:-}" ] ||
+	die 'no musl sysroot: set SYSROOT to a built FreeLinX toolchain (toolchain/README.md builds one into ~/freelinx/toolchain/x86_64-linux-musl)'
+if [ -d "$SYSROOT/usr/include" ] || [ -d "$SYSROOT/usr/lib" ]; then
+	SYSROOT_PREFIX=/usr
+else
+	SYSROOT_PREFIX=
+fi
+SYS_INC=$SYSROOT$SYSROOT_PREFIX/include
+SYS_LIB=$SYSROOT$SYSROOT_PREFIX/lib
 # The strict checker, kept in this repository: besides GNU libraries in
 # DT_NEEDED it finds GNU code linked in statically (ncurses, readline) by its
 # fingerprints, which a DT_NEEDED-only check passes.
@@ -77,8 +109,8 @@ CHECK_NOGNU=$HERE/check-nognu.sh
 # The host xpkg.  The desk's is a dynamic musl binary run through musl-run;
 # anything else that runs here will do (a static xpkg, say).
 if [ -z "${XPKG:-}" ]; then
-	if [ -x "$DESK/stack/work/bin/musl-run" ] && [ -x "$SYSROOT/usr/bin/xpkg" ]; then
-		XPKG="$DESK/stack/work/bin/musl-run $SYSROOT/usr/bin/xpkg"
+	if [ -x "$DESK/stack/work/bin/musl-run" ] && [ -x "$SYSROOT$SYSROOT_PREFIX/bin/xpkg" ]; then
+		XPKG="$DESK/stack/work/bin/musl-run $SYSROOT$SYSROOT_PREFIX/bin/xpkg"
 	elif command -v xpkg >/dev/null 2>&1; then
 		XPKG=xpkg
 	else
@@ -384,18 +416,56 @@ fi
 
 # cc (tcc) that compiles: the desktop shipped tcc with no libc headers, no
 # crt*.o and no libtcc1.a, so `cc hello.c` failed on stdio.h and crt1.o.
-# musl's headers (installed from the musl tree the stack was built with), the
-# kernel UAPI headers, musl's start files, and the tcc port with its runtime.
-MUSL_SRC=${MUSL_SRC:-$DESK/stack/work/src/musl/musl-1.2.5}
-[ -f "$MUSL_SRC/config.mak" ] || die "no configured musl tree at $MUSL_SRC"
-make -s -C "$MUSL_SRC" DESTDIR="$STAGE" install-headers >/dev/null ||
-	die 'installing the musl headers failed'
+# musl's headers, the kernel UAPI headers, musl's start files, and the tcc port
+# with its runtime.
+#
+# A configured musl source tree is used when there is one, because installing
+# from it is exact.  There is not one outside the desktop flow, and requiring it
+# anyway meant a base build needed a tree it had no other use for.  The sysroot
+# carries the same headers, because the sysroot was made by installing musl
+# into it, so they are copied from there when there is no musl tree to install
+# from.  libc++ is left behind: this image has no C++ compiler, and shipping a
+# C++ standard library's headers to a machine whose compiler is tcc is the kind
+# of thing that makes `ls /usr/include` unreadable.
+if [ -n "${MUSL_SRC:-}" ] || [ -f "$DESK/stack/work/src/musl/musl-1.2.5/config.mak" ]; then
+	MUSL_SRC=${MUSL_SRC:-$DESK/stack/work/src/musl/musl-1.2.5}
+	[ -f "$MUSL_SRC/config.mak" ] || die "no configured musl tree at $MUSL_SRC"
+	make -s -C "$MUSL_SRC" DESTDIR="$STAGE" install-headers >/dev/null ||
+		die 'installing the musl headers failed'
+else
+	[ -f "$SYS_INC/stdio.h" ] ||
+		die "the sysroot at $SYSROOT has no libc headers ($SYS_INC/stdio.h)"
+	for h in "$SYS_INC"/*; do
+		[ "${h##*/}" = c++ ] || cp -R "$h" "$STAGE/usr/include/"
+	done
+	say "    libc headers from $SYS_INC"
+fi
 for d in linux asm asm-generic; do
-	cp -R "$SYSROOT/usr/include/$d" "$STAGE/usr/include/"
+	[ -d "$SYS_INC/$d" ] || die "the sysroot at $SYSROOT has no $d/ UAPI headers"
+	cp -R "$SYS_INC/$d" "$STAGE/usr/include/"
 done
+# crt1.o is what every dynamically linked program starts with, and crti.o and
+# crtn.o bracket it; Scrt1.o and rcrt1.o are the PIE and static-PIE variants,
+# and a musl configured without PIE support does not build them.  So the two
+# that must exist are required, and the ones that may not are named in the
+# build log instead of aborting it: `cp` on a missing file dies with a path and
+# no reason, which is the worst possible way to learn a sysroot has no Scrt1.o.
+have_crt=
 for o in crt1.o crti.o crtn.o Scrt1.o rcrt1.o; do
-	cp "$SYSROOT/usr/lib/$o" "$STAGE/usr/lib/$o"
+	[ -f "$SYS_LIB/$o" ] || continue
+	cp "$SYS_LIB/$o" "$STAGE/usr/lib/$o"
+	have_crt="$have_crt $o"
 done
+for o in crt1.o crti.o crtn.o; do
+	case $have_crt in
+	*" $o "*) ;;
+	*) die "the sysroot at $SYSROOT has no $o: a C compiler cannot link a program without it" ;;
+	esac
+done
+case $have_crt in
+*' Scrt1.o '*) ;;
+*) say '    note: this sysroot has no Scrt1.o, so tcc cannot build a PIE binary' ;;
+esac
 rm -f "$STAGE/usr/bin/tcc"
 f=$(ls "$PORTS_PKGS"/tcc-[0-9]*.xpkg 2>/dev/null | sort -V | tail -1)
 [ -n "$f" ] || die "no tcc package in $PORTS_PKGS"

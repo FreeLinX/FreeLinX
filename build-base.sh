@@ -25,7 +25,8 @@
 #   KERNEL     the kernel image  (default: the linux package's
 #              /usr/lib/linux/bzImage-*, so it matches /lib/modules; with
 #              BASE_FROM_DESKTOP=1, $DESK/kernel/bzImage)
-#   LIMINE_DIR Limine binaries   (default: $DESK/iso/limine, else /usr/share/limine)
+#   LIMINE_DIR Limine binaries   (default: ../drivers/bootloader/limine-binary,
+#              else $DESK/iso/limine, else /usr/share/limine)
 #   OUT        the ISO to write    (default: out/freelinx-base-x86_64.iso)
 #   SERIAL=1   also put the console on ttyS0 (for tests)
 #   FLX_HW_TARBALL       lib/firmware + lib/modules (default: $DESK/firmware-*.tar.xz)
@@ -36,8 +37,20 @@ ROOT=$(cd "$HERE/.." && pwd)
 DESK=${DESK:-$ROOT/Desktop-test}
 [ "${BASE_FROM_DESKTOP:-0}" = 1 ] && KERNEL=${KERNEL:-$DESK/kernel/bzImage}
 if [ -z "${LIMINE_DIR:-}" ]; then
-	LIMINE_DIR=$DESK/iso/limine
-	[ -d "$LIMINE_DIR" ] || LIMINE_DIR=/usr/share/limine
+	# Where Limine lives, in the order that finds it soonest.  The desktop
+	# tree's copy only exists when BASE_FROM_DESKTOP is used; /usr/share/limine
+	# only when a distribution package put it there.  This project's own copy is
+	# in drivers, which every build of these repositories already has checked
+	# out, so it is searched too: a build that needs an environment variable to
+	# find a file that is in the tree next to it is a build that only works on
+	# the machine it was written on.
+	for c in "$ROOT/drivers/bootloader/limine-binary" "$DESK/iso/limine" /usr/share/limine; do
+		if [ -f "$c/limine-bios-cd.bin" ]; then
+			LIMINE_DIR=$c
+			break
+		fi
+	done
+	LIMINE_DIR=${LIMINE_DIR:-/usr/share/limine}
 fi
 OUT=${OUT:-$HERE/out/freelinx-base-x86_64.iso}
 VERSION=$(cat "$HERE/VERSION" 2>/dev/null || echo 1.0.7)
@@ -52,9 +65,10 @@ done
 [ -z "${KERNEL:-}" ] || [ -f "$KERNEL" ] || die "kernel not found: $KERNEL"
 # the limine tool: next to its files (the desk tree), or installed (/usr/bin)
 LIMINE=$LIMINE_DIR/limine
-[ -x "$LIMINE" ] || LIMINE=$(command -v limine 2>/dev/null) || die "no limine tool in $LIMINE_DIR or on PATH"
+[ -x "$LIMINE" ] || LIMINE=$(command -v limine 2>/dev/null) ||
+	die "no limine tool in $LIMINE_DIR or on PATH (limine bios-install writes the BIOS boot sector)"
 for f in limine-bios-cd.bin limine-uefi-cd.bin limine-bios.sys BOOTX64.EFI; do
-	[ -f "$LIMINE_DIR/$f" ] || die "missing $LIMINE_DIR/$f"
+	[ -f "$LIMINE_DIR/$f" ] || die "missing $LIMINE_DIR/$f (searched $ROOT/drivers/bootloader/limine-binary, $DESK/iso/limine, /usr/share/limine)"
 done
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/flxbase.XXXXXX")
@@ -78,7 +92,11 @@ cp -f "$KERNEL" "$STAGE/boot/vmlinuz"
 #
 # Firmware is not in git - vendor blobs - and without it real WiFi, GPUs and
 # audio codecs do not come up.  The linux-firmware package carries the common
-# set; the tarball adds the rest when it is there.
+# set, so a build needs nothing else.  FLX_HW_TARBALL adds a newer set than the
+# package has; the src repository publishes one as a release asset
+# (github.com/FreeLinX/src/releases).  Nothing here fetches it, because 400 MB
+# of vendor blobs downloaded unasked is not a decision a build script should
+# make on its own.
 #
 # Modules come from the same tarball because they arrive the same way when they
 # arrive at all.  The linux package carries them, and that package is built by
@@ -116,6 +134,20 @@ if [ -d "$STAGE/lib/modules" ]; then
 	kv=${1%/}; kv=${kv##*/}
 	step "    modules for $kv"
 fi
+
+# Firmware, said out loud.  The linux-firmware package is where the blobs come
+# from; FLX_HW_TARBALL is for a newer set than the package carries, and the
+# src release publishes one.  Nothing above here can tell the difference between
+# an image whose WiFi, GPU and audio codecs work and one where every one of
+# them loads its module and then sits there with the radio off, so the count is
+# printed, and an image with none is refused rather than shipped: it is the one
+# failure a person only finds out about when they plug the machine in.
+if [ ! -d "$STAGE/lib/firmware" ]; then
+	die 'no /lib/firmware: the linux-firmware package is in KEEP and installs it'
+fi
+set -- $(find "$STAGE/lib/firmware" -type f | wc -l)
+[ "$1" -gt 0 ] || die "/lib/firmware is empty: no device can initialise without its blob"
+step "    $1 firmware blobs"
 
 # Modes git cannot carry, as the desktop image build sets them.
 chmod 0600 "$STAGE/etc/shadow"
