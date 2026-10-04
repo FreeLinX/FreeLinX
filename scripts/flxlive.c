@@ -160,7 +160,10 @@ int main(void)
 
 	/* the writable layer: everything the live session changes, in RAM */
 	mkdir("/run/rw", 0755);
-	if (mount("tmpfs", "/run/rw", "tmpfs", 0, "mode=0755"))
+	/* 75% of RAM rather than tmpfs' default half: installing a large package
+	 * (Firefox) in the live session needs the room, and the pages are only
+	 * used as they are written. */
+	if (mount("tmpfs", "/run/rw", "tmpfs", 0, "mode=0755,size=75%"))
 		rescue("cannot mount the tmpfs for the writable layer");
 	mkdir("/run/rw/upper", 0755);
 	mkdir("/run/rw/work", 0755);

@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml/badge.svg)](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml)
 
-Current release: **1.3.0** (stable) — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest)
+Current release: **1.3.1** (stable) — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest)
 
 FreeLinX without a desktop: a shell on the console, `xpkg` for everything else.
 Linux 6.18, a NetBSD userland, musl, LLVM-built, no GNU code (`check-nognu`,
@@ -24,8 +24,46 @@ freelinx-base-x86_64.iso     ~290 MB, boots on BIOS and UEFI
 - **Installing:** `xsetup` puts the system on a disk; `flxupgrade` upgrades an
   installed system from a newer ISO.
 
-No X11, GTK, Mesa or fonts. Everything else: `xpkg install <name>` (the signed
-repository has ~425 packages).
+No X11, GTK, Mesa or fonts on the image. Everything else: `xpkg install <name>`
+(the signed repository has ~428 packages); see [A desktop](#a-desktop).
+
+## Trying it
+
+In QEMU (KVM). Make a disk once, boot the ISO and run `xsetup`:
+
+```sh
+qemu-img create -f qcow2 flx.qcow2 20G       # once: this empties the disk
+qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 \
+  -drive file=flx.qcow2,if=virtio,format=qcow2 \
+  -cdrom freelinx-base-x86_64.iso -boot d \
+  -device VGA,xres=1600,yres=900 \
+  -nic user,model=virtio-net-pci
+```
+
+Then boot the installed disk, without the ISO:
+
+```sh
+qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 \
+  -drive file=flx.qcow2,if=virtio,format=qcow2 \
+  -device VGA,xres=1600,yres=900 \
+  -nic user,model=virtio-net-pci
+```
+
+- `xres`/`yres` is the screen size the system takes, both on the console and in X.
+- For UEFI, add `-machine q35` and the OVMF firmware.
+- "No bootable device" means the disk has no system on it yet: install first.
+
+On a real machine, write the ISO to a USB stick and boot it. BIOS and UEFI
+both work; Secure Boot has to be off.
+
+```sh
+sudo dd if=freelinx-base-x86_64.iso of=/dev/sdX bs=4M conv=fsync
+```
+
+Check with `lsblk` that `/dev/sdX` is the stick: `dd` erases it.
+
+In the live session, what you change is kept in RAM (up to 75% of it). Large
+packages such as Firefox need an installed system, or more RAM.
 
 ## Installing
 
@@ -86,6 +124,20 @@ doas xpkg install tmux      # packages; doas xpkg upgrade updates them
 Only users in `wheel` can use `doas`. `setup-user` asks whether the first user
 should be one, and `flxadduser NAME --admin` makes another.
 
+### A desktop
+
+```sh
+xpkg install xorg xinit openbox      # pulls in fonts, st and the keymaps
+startx
+```
+
+Right-click the desktop for the menu (Terminal, Reconfigure, Restart, Exit).
+Without `~/.xinitrc`, `startx` starts openbox with an `st` terminal. Your own
+`~/.xinitrc` should end in `exec openbox --startup st`: a terminal started
+next to openbox can come up before openbox manages the screen and never show.
+`xrandr -s 1920x1080` (package `xrandr`) changes the screen size. Firefox:
+`xpkg install firefox`.
+
 ### Upgrading
 
 Boot the new release's ISO on the installed machine and run:
@@ -108,17 +160,17 @@ image is removed from the boot partition.
 ### What it needs
 
 The build runs on any x86_64 Linux machine. It does **not** need a built
-desktop (FreeLinX-desk).
+desktop (FreeLinX-desk), and it needs no root.
 
-Put these checkouts next to each other:
+**1. Host tools** (Debian/Ubuntu names):
 
+```sh
+sudo apt install git curl python3 openssl xorriso squashfs-tools cpio xz-utils binutils
+# only for the QEMU tests:
+sudo apt install qemu-system-x86 qemu-utils ovmf
 ```
-FreeLinX/
-├── FreeLinX-base/   this repository
-├── src/             github.com/FreeLinX/src       the root filesystem
-├── ports/           github.com/FreeLinX/ports     console ports, man pages
-└── drivers/         github.com/FreeLinX/drivers   Limine (bootloader/limine-binary)
-```
+
+**2. The sources, next to each other:**
 
 ```sh
 mkdir FreeLinX && cd FreeLinX
@@ -127,19 +179,35 @@ for r in FreeLinX-base src ports drivers; do
 done
 ```
 
-You also need the following:
+**3. The FreeLinX toolchain** (clang + LLD + a musl sysroot; it builds the live
+medium's small init). Unpack its release next to them:
 
-| Need | Why | Where it is looked for |
+```sh
+curl -LO https://github.com/FreeLinX/toolchain/releases/download/v1.0.0/toolchain.tar.gz
+tar -xzf toolchain.tar.gz           # -> FreeLinX/toolchain/
+```
+
+You end up with:
+
+```
+FreeLinX/
+├── FreeLinX-base/   this repository: the build, the installer, the tests
+├── src/             the root filesystem
+├── ports/           console ports (mandoc, less, mksh, tcc, ...)
+├── drivers/         Limine (bootloader/limine-binary)
+└── toolchain/       clang, lld, the musl sysroot
+```
+
+Everything else is fetched, and checked, during the build:
+
+| What | From | Checked by |
 |---|---|---|
-| `xorriso`, `mksquashfs` (squashfs-tools), `cpio`, `xz`, `curl`, `readelf`, `git` | packing the medium, fetching | `PATH` |
-| a musl C compiler | builds `scripts/flxlive.c`, the live medium's 46 KB init | `LIVECC=`, then the desk's `flx-cc`, then `clang` with the musl sysroot |
-| a host `xpkg` | installs the packages into the image | `XPKG=`, then `xpkg` on `PATH` |
-| a musl sysroot | tcc's headers and `crt*.o` | `SYSROOT=`, then `~/freelinx/toolchain/x86_64-linux-musl` (built by [toolchain](https://github.com/FreeLinX/toolchain)) |
-| network | the 25 base packages come from the signed repository | `REPO=` (default: the FreeLinX repository on Hugging Face) |
-| `qemu-system-x86_64`, OVMF | only for the install test | `PATH`, `/usr/share/OVMF` |
+| the 26 packages base is made of (musl, openssl, linux, xpkg, …) | the signed package repository | Ed25519 index signature (`keys/freelinx.pub`), sha256 per archive |
+| a host `xpkg`, when this machine has none | the same repository | the same |
+| `file-5.46.tar.gz` (for `magic.mgc`) | the FreeLinX source mirror | its recorded sha256 |
 
-The package index is checked against `keys/freelinx.pub` (Ed25519) before
-anything from it is installed.
+Every input can be pointed elsewhere: `XPKG`, `SYSROOT`, `LIVECC`, `REPO`,
+`LIMINE_DIR`, `FLXSRC`.
 
 ### Build
 
@@ -148,13 +216,13 @@ cd FreeLinX-base
 sh build-base.sh            # -> out/freelinx-base-x86_64.iso (+ .sha256)
 ```
 
-It takes a few minutes. The build does this:
+It takes a few minutes and downloads about 150 MB. The build does this:
 
 1. **`scripts/mkrootfs.sh`** makes the system:
    - copies `../src/rootfs`;
    - installs the 25 packages base keeps (musl, openssl, dbus, linux,
-     linux-firmware, toybox, xpkg, …) by name from the signed repository, so
-     the image has a package database;
+     linux-firmware, toybox, xpkg, …) and musl-dev by name from the signed
+     repository, so the image has a package database;
    - adds the console ports (mandoc, less, iproute2, lsof, mksh, stty, tcc),
      the manual pages and the repository key;
    - trims everything a console system does not use.

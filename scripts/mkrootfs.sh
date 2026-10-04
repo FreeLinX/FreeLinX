@@ -85,7 +85,10 @@ PKGS=$DESK/stack/work/pkgs
 # .../usr/include/linux" on every machine that had followed the toolchain's own
 # instructions.
 if [ -z "${SYSROOT:-}" ]; then
-	for c in "$DESK/stack/work/sysroot" "$HOME/freelinx/toolchain/x86_64-linux-musl"; do
+	# toolchain/README.md builds into ~/freelinix (sic); ~/freelinx is accepted too
+	for c in "$DESK/stack/work/sysroot" "$ROOT/toolchain/x86_64-linux-musl" \
+		"$HOME/freelinix/toolchain/x86_64-linux-musl" \
+		"$HOME/freelinx/toolchain/x86_64-linux-musl"; do
 		if [ -d "$c/usr/include" ] || [ -d "$c/include" ]; then
 			SYSROOT=$c
 			break
@@ -93,7 +96,7 @@ if [ -z "${SYSROOT:-}" ]; then
 	done
 fi
 [ -n "${SYSROOT:-}" ] ||
-	die 'no musl sysroot: set SYSROOT to a built FreeLinX toolchain (toolchain/README.md builds one into ~/freelinx/toolchain/x86_64-linux-musl)'
+	die 'no musl sysroot: set SYSROOT to a built FreeLinX toolchain (toolchain/README.md builds one into ~/freelinix/toolchain/x86_64-linux-musl)'
 if [ -d "$SYSROOT/usr/include" ] || [ -d "$SYSROOT/usr/lib" ]; then
 	SYSROOT_PREFIX=/usr
 else
@@ -114,7 +117,10 @@ if [ -z "${XPKG:-}" ]; then
 	elif command -v xpkg >/dev/null 2>&1; then
 		XPKG=xpkg
 	else
-		die 'no host xpkg: set XPKG to a command that runs xpkg on this machine'
+		# None here: take one from the repository, signature-checked.
+		say "==> fetching a host xpkg from the package repository"
+		XPKG=$(sh "$HERE/host-xpkg.sh" "$STAGE.hostxpkg" "$REPO") ||
+			die 'no host xpkg, and none could be fetched (set XPKG to one)'
 	fi
 fi
 
@@ -244,7 +250,8 @@ if [ "$SRC_IS_BASE" = yes ]; then
 	mkdir -p "$STAGE.cfg/keys"
 	cp "$STAGE/etc/xpkg/keys/freelinx.pub" "$STAGE.cfg/keys/"
 	printf '%s\n' "$REPO" >"$STAGE.cfg/repos.conf"
-	XPKG_CONFIG_DIR=$STAGE.cfg xpkg --quiet --no-scripts -f install $KEEP \
+	# musl-dev: musl's and the kernel's headers and crt*.o, for tcc (4c below)
+	XPKG_CONFIG_DIR=$STAGE.cfg xpkg --quiet --no-scripts -f install $KEEP musl-dev \
 		>"$STAGE.register.log" 2>&1 || {
 		tail -20 "$STAGE.register.log" >&2
 		die 'installing the packages from the repository failed'
@@ -402,17 +409,20 @@ if [ -d "$NETBSD_SRC/usr.bin" ]; then
 			done
 		done
 	done
-	say "    $n_man manual pages"
-	# The index man reads first.  mandoc is static, so the host can run it;
-	# invoked as makewhatis it builds mandoc.db.
-	# (mandoc picks the mode from its name, so the link is called makewhatis)
-	mkdir -p "$STAGE.tools"
-	ln -sf "$STAGE/bin/mandoc" "$STAGE.tools/makewhatis"
-	"$STAGE.tools/makewhatis" "$STAGE/usr/share/man" || die 'makewhatis failed'
-	rm -rf "$STAGE.tools"
+	say "    $n_man manual pages from the NetBSD tree"
 else
-	say "    no NetBSD source tree at $NETBSD_SRC: manual pages not added"
+	# src/rootfs carries the NetBSD pages for what it ships, so a fresh
+	# checkout without ports/build/work still has them
+	say "    no NetBSD source tree at $NETBSD_SRC: the pages in src/rootfs are used"
 fi
+# The index man -k and apropos read.  mandoc is static, so the host can run
+# it; invoked as makewhatis (mandoc picks the mode from its name) it builds
+# mandoc.db.
+mkdir -p "$STAGE.tools"
+ln -sf "$STAGE/bin/mandoc" "$STAGE.tools/makewhatis"
+"$STAGE.tools/makewhatis" "$STAGE/usr/share/man" || die 'makewhatis failed'
+rm -rf "$STAGE.tools"
+say "    $(find "$STAGE/usr/share/man" -type f -name '*.[0-9]' | wc -l) manual pages in all"
 
 # cc (tcc) that compiles: the desktop shipped tcc with no libc headers, no
 # crt*.o and no libtcc1.a, so `cc hello.c` failed on stdio.h and crt1.o.
@@ -427,45 +437,52 @@ fi
 # from.  libc++ is left behind: this image has no C++ compiler, and shipping a
 # C++ standard library's headers to a machine whose compiler is tcc is the kind
 # of thing that makes `ls /usr/include` unreadable.
-if [ -n "${MUSL_SRC:-}" ] || [ -f "$DESK/stack/work/src/musl/musl-1.2.5/config.mak" ]; then
-	MUSL_SRC=${MUSL_SRC:-$DESK/stack/work/src/musl/musl-1.2.5}
-	[ -f "$MUSL_SRC/config.mak" ] || die "no configured musl tree at $MUSL_SRC"
-	make -s -C "$MUSL_SRC" DESTDIR="$STAGE" install-headers >/dev/null ||
-		die 'installing the musl headers failed'
+if xpkg info musl-dev >/dev/null 2>&1; then
+	# The musl-dev package (installed with the KEEP packages from the
+	# repository) is exactly these: musl's headers, the kernel UAPI headers and
+	# crt*.o, registered as a package.
+	say "    libc headers and start files: the musl-dev package"
 else
-	[ -f "$SYS_INC/stdio.h" ] ||
-		die "the sysroot at $SYSROOT has no libc headers ($SYS_INC/stdio.h)"
-	for h in "$SYS_INC"/*; do
-		[ "${h##*/}" = c++ ] || cp -R "$h" "$STAGE/usr/include/"
+	if [ -n "${MUSL_SRC:-}" ] || [ -f "$DESK/stack/work/src/musl/musl-1.2.5/config.mak" ]; then
+		MUSL_SRC=${MUSL_SRC:-$DESK/stack/work/src/musl/musl-1.2.5}
+		[ -f "$MUSL_SRC/config.mak" ] || die "no configured musl tree at $MUSL_SRC"
+		make -s -C "$MUSL_SRC" DESTDIR="$STAGE" install-headers >/dev/null ||
+			die 'installing the musl headers failed'
+	else
+		[ -f "$SYS_INC/stdio.h" ] ||
+			die "the sysroot at $SYSROOT has no libc headers ($SYS_INC/stdio.h)"
+		for h in "$SYS_INC"/*; do
+			[ "${h##*/}" = c++ ] || cp -R "$h" "$STAGE/usr/include/"
+		done
+		say "    libc headers from $SYS_INC"
+	fi
+	for d in linux asm asm-generic; do
+		[ -d "$SYS_INC/$d" ] || die "the sysroot at $SYSROOT has no $d/ UAPI headers"
+		cp -R "$SYS_INC/$d" "$STAGE/usr/include/"
 	done
-	say "    libc headers from $SYS_INC"
-fi
-for d in linux asm asm-generic; do
-	[ -d "$SYS_INC/$d" ] || die "the sysroot at $SYSROOT has no $d/ UAPI headers"
-	cp -R "$SYS_INC/$d" "$STAGE/usr/include/"
-done
-# crt1.o is what every dynamically linked program starts with, and crti.o and
-# crtn.o bracket it; Scrt1.o and rcrt1.o are the PIE and static-PIE variants,
-# and a musl configured without PIE support does not build them.  So the two
-# that must exist are required, and the ones that may not are named in the
-# build log instead of aborting it: `cp` on a missing file dies with a path and
-# no reason, which is the worst possible way to learn a sysroot has no Scrt1.o.
-have_crt=
-for o in crt1.o crti.o crtn.o Scrt1.o rcrt1.o; do
-	[ -f "$SYS_LIB/$o" ] || continue
-	cp "$SYS_LIB/$o" "$STAGE/usr/lib/$o"
-	have_crt="$have_crt $o"
-done
-for o in crt1.o crti.o crtn.o; do
+	# crt1.o is what every dynamically linked program starts with, and crti.o and
+	# crtn.o bracket it; Scrt1.o and rcrt1.o are the PIE and static-PIE variants,
+	# and a musl configured without PIE support does not build them.  So the two
+	# that must exist are required, and the ones that may not are named in the
+	# build log instead of aborting it: `cp` on a missing file dies with a path and
+	# no reason, which is the worst possible way to learn a sysroot has no Scrt1.o.
+	have_crt=
+	for o in crt1.o crti.o crtn.o Scrt1.o rcrt1.o; do
+		[ -f "$SYS_LIB/$o" ] || continue
+		cp "$SYS_LIB/$o" "$STAGE/usr/lib/$o"
+		have_crt="$have_crt $o"
+	done
+	for o in crt1.o crti.o crtn.o; do
+		case $have_crt in
+		*" $o "*) ;;
+		*) die "the sysroot at $SYSROOT has no $o: a C compiler cannot link a program without it" ;;
+		esac
+	done
 	case $have_crt in
-	*" $o "*) ;;
-	*) die "the sysroot at $SYSROOT has no $o: a C compiler cannot link a program without it" ;;
+	*' Scrt1.o '*) ;;
+	*) say '    note: this sysroot has no Scrt1.o, so tcc cannot build a PIE binary' ;;
 	esac
-done
-case $have_crt in
-*' Scrt1.o '*) ;;
-*) say '    note: this sysroot has no Scrt1.o, so tcc cannot build a PIE binary' ;;
-esac
+fi
 rm -f "$STAGE/usr/bin/tcc"
 f=$(ls "$PORTS_PKGS"/tcc-[0-9]*.xpkg 2>/dev/null | sort -V | tail -1)
 [ -n "$f" ] || die "no tcc package in $PORTS_PKGS"
@@ -481,7 +498,18 @@ say "    C compiler: tcc, musl headers ($(du -sh "$STAGE/usr/include" | cut -f1)
 # 5.46 sources with this file binary (dynamic musl: run it with the stage's
 # own loader).
 FILE_SRC=${FILE_SRC:-$ROOT/ports/dist/file-5.46.tar.gz}
-[ -f "$FILE_SRC" ] || die "no file source at $FILE_SRC (for magic.mgc)"
+if [ ! -f "$FILE_SRC" ]; then
+	# ports/dist is a download cache, not in git: take the tarball from the
+	# FreeLinX source mirror, checked against the sum recorded for it there.
+	FILE_SUM=c9cc77c7c560c543135edc555af609d5619dbef011997e988ce40a3d75d86088
+	FILE_SRC=$STAGE.file-5.46.tar.gz
+	say "==> fetching file-5.46.tar.gz from the source mirror (for magic.mgc)"
+	curl -sfL --retry 3 -o "$FILE_SRC" \
+		https://huggingface.co/datasets/FreeLinX/sources/resolve/main/ports/file-5.46.tar.gz ||
+		die "no file source in ports/dist, and the source mirror could not be reached"
+	printf '%s  %s\n' "$FILE_SUM" "$FILE_SRC" | sha256sum -c - >/dev/null 2>&1 ||
+		die 'file-5.46.tar.gz from the mirror does not match its sum'
+fi
 mkdir -p "$STAGE.magic"
 tar -xzf "$FILE_SRC" -C "$STAGE.magic"
 ( cd "$STAGE.magic" &&

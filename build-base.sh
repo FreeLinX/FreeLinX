@@ -255,10 +255,15 @@ step 'building the live initramfs'
 # flxlive is built here with the musl toolchain: LIVECC, or the desk's flx-cc,
 # or clang against the musl sysroot.
 if [ -z "${LIVECC:-}" ]; then
+	TC=$ROOT/toolchain
 	if [ -x "$DESK/stack/work/bin/flx-cc" ]; then
 		LIVECC=$DESK/stack/work/bin/flx-cc
+	elif [ -x "$TC/bin/clang" ] && [ -f "$TC/x86_64-linux-musl/lib/libc.a" ]; then
+		# ../toolchain: the FreeLinX toolchain release (toolchain.tar.gz)
+		LIVECC="$TC/bin/clang --target=x86_64-linux-musl --sysroot=$TC/x86_64-linux-musl -fuse-ld=lld -rtlib=compiler-rt -unwindlib=none"
 	else
-		for sr in "${SYSROOT:-}" "$DESK/stack/work/sysroot" "$HOME/freelinx/toolchain/x86_64-linux-musl"; do
+		for sr in "${SYSROOT:-}" "$DESK/stack/work/sysroot" "$HOME/freelinix/toolchain/x86_64-linux-musl" \
+			"$HOME/freelinx/toolchain/x86_64-linux-musl"; do
 			[ -n "$sr" ] && [ -d "$sr" ] && break
 			sr=
 		done
