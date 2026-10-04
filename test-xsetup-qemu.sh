@@ -174,7 +174,12 @@ check 'the time zone is Asia/Baku' "$out" 'Asia/Baku'
 # "trees""-ok" and "NOT""-MOUNTED" are split because the console echoes the
 # command back: a needle spelled out in the command would find itself there and
 # pass whether or not the mount happened.
-out=$(serial login root r00tpw 'for d in usr etc var root bin sbin lib; do grep -q " /$d " /proc/mounts || echo "NOT""-MOUNTED $d"; done; echo "trees""-ok $(awk "\$2==\"/etc\"{print \$1}" /proc/mounts)"; echo "who=$(id -un)"; ls /var/service; tail -2 /var/log/sshd.log; cat /etc/flx-disk; cat /sys/class/vtconsole/vtcon1/name; grep -c "^live:" /etc/passwd; echo persisted > /etc/flx-test-marker; cat /etc/flx-test-marker')
+# The marker is written and then synced: stop(1) is a SIGTERM to QEMU, which
+# QEMU answers by exiting, not by asking the guest to power down.  Without the
+# sync the file is still in the guest's page cache when QEMU goes away and the
+# reboot check below measures when the host flushed its writeback, not whether
+# /etc is on the disk.
+out=$(serial login root r00tpw 'for d in usr etc var root bin sbin lib; do grep -q " /$d " /proc/mounts || echo "NOT""-MOUNTED $d"; done; echo "trees""-ok $(awk "\$2==\"/etc\"{print \$1}" /proc/mounts)"; echo "who=$(id -un)"; ls /var/service; tail -2 /var/log/sshd.log; cat /etc/flx-disk; cat /sys/class/vtconsole/vtcon1/name; grep -c "^live:" /etc/passwd; echo persisted > /etc/flx-test-marker; sync; cat /etc/flx-test-marker')
 check 'the seven system trees are mount points' "$out" 'trees-ok'
 case $out in *NOT-MOUNTED*) fail=$((fail + 1)); echo '  FAIL a system tree was left in RAM' ;; *) pass=$((pass + 1)); echo '  ok   no system tree was left in RAM' ;; esac
 check '/etc is on the pinned system partition' "$out" 'trees-ok /dev/vda3'

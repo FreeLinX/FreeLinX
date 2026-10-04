@@ -78,15 +78,19 @@ console.
 sh build-base.sh
 ```
 
-It needs a built FreeLinX-desk checkout next to this one (`../Desktop-test`:
-`src/rootfs`, `kernel/bzImage` and the stack packages) and `../ports`. It does
-the following:
+It needs, next to this checkout, `../src` (FreeLinX/src) and `../ports`, and
+network access to the signed package repository. It does not need a built
+FreeLinX-desk. It does the following:
 
-1. `scripts/mkrootfs.sh` copies the desktop rootfs and registers every stack
-   package. It runs `xpkg remove` on the 100 desktop packages, so each takes its
-   own files, and deletes the desktop files no package owns. It adds the console
-   ports and the manual pages. It fails if any program needs a library that is
-   gone, if any graphical program is left, or if `check-nognu` finds anything.
+1. `scripts/mkrootfs.sh` copies `src/rootfs` and installs the 25 packages base
+   keeps (musl, openssl, dbus, linux, toybox, xpkg, ...) by name from the
+   signed package repository, so the image has a package database. It adds the
+   console ports, the manual pages and xpkg's signing key. It fails if
+   `flxconsole` would give an installed system a shell instead of a login, if
+   any program needs a library that is gone, if any graphical program is left,
+   or if `scripts/check-nognu.sh` finds GNU code. The kernel is the linux
+   package's. `BASE_FROM_DESKTOP=1` builds from a built `../Desktop-test`
+   instead, as 1.0.8 to 1.0.13 were.
 2. Firmware from `firmware-<kver>.tar.xz`, if it is there.
 3. The system is packed as one xz initramfs and put on a Limine ISO labelled
    `FREELINX_LIVE`, which is the label `flxupgrade` looks for.

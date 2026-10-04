@@ -170,7 +170,7 @@ grep -q 'flx_find UUID "\$_sys_uuid"' "$INIT" &&
 grep -q 'flx_find LABEL FLX_SYS' "$INIT" &&
 	no '/init must not fall back to the FLX_SYS label' ||
 	ok '/init has no FLX_SYS label fallback'
-grep -q 'mount -o bind "/mnt/flxsys/\$_d" "/\$_d"' "$INIT" &&
+grep -q 'mount -o bind "/mnt/flx_sys/\$_d" "/\$_d"' "$INIT" &&
 	ok '/init binds each tree with mount -o bind' ||
 	no '/init binds each tree with mount -o bind'
 # /var is already mounted by the FLX_SYS binds, so the FREELINUX_VAR scan has

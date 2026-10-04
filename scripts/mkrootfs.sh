@@ -7,9 +7,9 @@
 #   sh scripts/mkrootfs.sh -o STAGE
 #
 # Base is built from the same tree the desktop release is built from
-# (src/rootfs + kernel/bzImage + the stack packages), because that tree is the
-# one that is kept current and passes check-nognu.  The old src/rootfs is not:
-# Linux 6.6, GCC-built tools, GNU ncurses linked in.
+# (FreeLinX-desk: src/rootfs + kernel/bzImage + the stack packages), because
+# that tree is the one that is kept current and passes check-nognu.  The old
+# src/rootfs is not: Linux 6.6, GCC-built tools, GNU ncurses linked in.
 #
 # The desktop is taken out by package, not by search:
 #
@@ -22,14 +22,30 @@
 #   6. refuse the result if any ELF needs a library that is gone, or if
 #      check-nognu finds GNU code in it
 #
+# Two sources (step 1b says how they differ):
+#
+#   FreeLinX/src   (default) src/rootfs, already a console system, plus the
+#                  KEEP packages installed by name from the signed package
+#                  repository - the same one installed systems update from -
+#                  so the image has a package database and needs nothing that
+#                  is not in git or in that repository.
+#   FreeLinX-desk  BASE_FROM_DESKTOP=1: the desktop rootfs and its local stack
+#                  packages, desktop removed.  Needs a built Desktop-test.
+#
 # Environment:
-#   DESK      the tree this rootfs is built from   (default: the checkout
-#            above base -- src/, stack/, check-nognu.sh)
+#   FLXSRC    the FreeLinX/src checkout    (default: ../src)
+#   DESK      the FreeLinX-desk checkout   (default: ../Desktop-test)
+#   REPO      package repository URL       (default: the FreeLinX repository)
+#   XPKG      a host xpkg command          (default: the desk's, or xpkg on PATH)
+#   SYSROOT   musl sysroot, for tcc's crt*.o and kernel headers
+#   MUSL_SRC  configured musl source tree, for tcc's libc headers
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-DESK=${DESK:-$ROOT}
+DESK=${DESK:-$ROOT/Desktop-test}
+FLXSRC=${FLXSRC:-$ROOT/src}
+REPO=${REPO:-https://huggingface.co/datasets/FreeLinX/packages/resolve/main}
 
 STAGE=
 while [ $# -gt 0 ]; do
@@ -44,28 +60,49 @@ done
 die() { printf 'mkrootfs: %s\n' "$*" >&2; exit 1; }
 say() { printf '%s\n' "$*"; }
 
-SRC=$DESK/src/rootfs
+if [ "${BASE_FROM_DESKTOP:-0}" = 1 ]; then
+	SRC_GIT=$DESK
+else
+	SRC_GIT=$FLXSRC
+fi
+SRC=$SRC_GIT/src/rootfs
+[ "$SRC_GIT" = "$FLXSRC" ] && SRC=$FLXSRC/rootfs
 PKGS=$DESK/stack/work/pkgs
-XPKG=$DESK/stack/work/sysroot/usr/bin/xpkg
-MUSL_RUN=$DESK/stack/work/bin/musl-run
-CHECK_NOGNU=$DESK/check-nognu.sh
+SYSROOT=${SYSROOT:-$DESK/stack/work/sysroot}
+# The strict checker, kept in this repository: besides GNU libraries in
+# DT_NEEDED it finds GNU code linked in statically (ncurses, readline) by its
+# fingerprints, which a DT_NEEDED-only check passes.
+CHECK_NOGNU=$HERE/check-nognu.sh
 
-[ -d "$SRC/usr/bin" ] || die "no rootfs at $SRC (DESK=$DESK must hold src/rootfs)"
-[ -x "$XPKG" ] || die "no host xpkg at $XPKG (build the stack under $DESK/stack first)"
-[ -x "$MUSL_RUN" ] || die "no musl-run at $MUSL_RUN"
+# The host xpkg.  The desk's is a dynamic musl binary run through musl-run;
+# anything else that runs here will do (a static xpkg, say).
+if [ -z "${XPKG:-}" ]; then
+	if [ -x "$DESK/stack/work/bin/musl-run" ] && [ -x "$SYSROOT/usr/bin/xpkg" ]; then
+		XPKG="$DESK/stack/work/bin/musl-run $SYSROOT/usr/bin/xpkg"
+	elif command -v xpkg >/dev/null 2>&1; then
+		XPKG=xpkg
+	else
+		die 'no host xpkg: set XPKG to a command that runs xpkg on this machine'
+	fi
+fi
+
+[ -d "$SRC/usr/bin" ] || die "no rootfs at $SRC"
 [ -f "$CHECK_NOGNU" ] || die "no check-nognu.sh at $CHECK_NOGNU"
-ls "$PKGS"/*.xpkg >/dev/null 2>&1 || die "no packages in $PKGS"
+if [ "${BASE_FROM_DESKTOP:-0}" = 1 ]; then
+	ls "$PKGS"/*.xpkg >/dev/null 2>&1 || die "no packages in $PKGS"
+fi
 
 # The rootfs is copied from the working tree, so uncommitted work would ship
 # in an image no commit describes.  ALLOW_DIRTY=1 for a test build.
-if [ "${ALLOW_DIRTY:-0}" != 1 ] && git -C "$DESK" rev-parse >/dev/null 2>&1; then
-	dirty=$(git -C "$DESK" status --porcelain -- src/rootfs)
+if [ "${ALLOW_DIRTY:-0}" != 1 ] && git -C "$SRC_GIT" rev-parse >/dev/null 2>&1; then
+	dirty=$(git -C "$SRC_GIT" status --porcelain -- "${SRC#"$SRC_GIT"/}")
 	[ -z "$dirty" ] || die "uncommitted changes in $SRC (ALLOW_DIRTY=1 to build anyway):
 $dirty"
-	say "==> desktop tree at $(git -C "$DESK" rev-parse --short HEAD)"
+	say "==> source tree $SRC_GIT at $(git -C "$SRC_GIT" rev-parse --short HEAD)"
 fi
 
-xpkg() { NO_COLOR=1 "$MUSL_RUN" "$XPKG" --root "$STAGE" "$@"; }
+# shellcheck disable=SC2086  # XPKG may be a command with arguments
+xpkg() { NO_COLOR=1 $XPKG --root "$STAGE" "$@"; }
 
 # The packages base keeps.  Everything else in the stack is the desktop.
 KEEP='
@@ -119,26 +156,75 @@ mkdir -p "$STAGE"
 # stack/work/pkgs, which is a build output of a tree that is not this
 # repository.  Ten of the twenty-five have no recipe in ports either.
 #
-# So when the source is already a base system, the package steps are skipped and
-# the files are taken as they are.  The programs base cannot boot without are
-# checked by name instead, further down, because `xpkg info` has nothing to ask.
+# Those twenty-five are published, though: publish-repo.sh put the same
+# archives in the signed package repository, and that is where they are taken
+# from (step 2), by name.  The desktop packages are never installed, so there is
+# nothing to remove.
 #
-# Set BASE_FROM_DESKTOP=1 to force the old path, which is what building base
-# from a src/rootfs that still carries the desktop does.
+# Set BASE_FROM_DESKTOP=1 to build from a built Desktop-test instead.
 if [ "${BASE_FROM_DESKTOP:-0}" = 1 ]; then
 	SRC_IS_BASE=no
 else
+	SRC_IS_BASE=yes
 	if [ -e "$SRC/usr/bin/Xorg" ] || [ -e "$SRC/usr/lib/libX11.so" ]; then
-		SRC_IS_BASE=no
-	else
-		SRC_IS_BASE=yes
+		die "$SRC has a desktop in it (Xorg, libX11); BASE_FROM_DESKTOP=1 is for that"
 	fi
 fi
 
+# --- 1c. desktop source: the console and account tools from FreeLinX/src -----
+# The desktop tree has none of these - its consoles are greetd and a serial
+# shell.  flxconsole puts a shell on the live medium's consoles and a login on
+# an installed system's; setup-passwd and setup-user need flxpasswd and
+# flxuseradd.
+if [ "$SRC_IS_BASE" = no ]; then
+	for f in sbin/flxconsole bin/flxpasswd bin/flxuseradd var/service/shell/run; do
+		if [ "${ALLOW_DIRTY:-0}" != 1 ] && git -C "$FLXSRC" rev-parse >/dev/null 2>&1; then
+			[ -z "$(git -C "$FLXSRC" status --porcelain -- "rootfs/$f")" ] ||
+				die "uncommitted changes in $FLXSRC/rootfs/$f (ALLOW_DIRTY=1 to build anyway)"
+		fi
+		[ -f "$FLXSRC/rootfs/$f" ] || die "no $f in $FLXSRC/rootfs (FLXSRC= the FreeLinX/src checkout)"
+		cp -p "$FLXSRC/rootfs/$f" "$STAGE/$f"
+	done
+fi
+# An flxconsole that gives an installed system a shell makes the root password
+# xsetup sets mean nothing: v1.0.11.1 shipped one.
+grep -q flx-installed "$STAGE/sbin/flxconsole" ||
+	die 'flxconsole gives an installed system a shell instead of a login'
+
+# The repository's signing key and address.  xpkg refuses a repository whose
+# index it cannot verify, so an image without the key installs nothing.
+mkdir -p "$STAGE/etc/xpkg/keys"
+cp "$HERE/../keys/freelinx.pub" "$STAGE/etc/xpkg/keys/freelinx.pub"
+[ -s "$STAGE/etc/xpkg/repos.conf" ] || printf '%s\n' "$REPO" >"$STAGE/etc/xpkg/repos.conf"
+
 # --- 2. register -------------------------------------------------------------
 if [ "$SRC_IS_BASE" = yes ]; then
-	say '==> source is already a base system: keeping its files as they are'
-	say '    (BASE_FROM_DESKTOP=1 to install the stack packages instead)'
+	# The KEEP packages, by name from the signed repository: the libraries
+	# and services base is made of get a package database that describes
+	# them, so `xpkg upgrade` and anything installed later see them as
+	# installed instead of trying to put a second copy on top.  These are the
+	# same archives the desktop stack produced, published by publish-repo.sh,
+	# so nothing here depends on a Desktop-test being built on this machine.
+	# -f: the src rootfs already carries some of these files; the package's
+	# copy wins and is registered.
+	say "==> installing $(echo $KEEP | wc -w) packages from $REPO"
+	rm -rf "$STAGE.cfg"
+	mkdir -p "$STAGE.cfg/keys"
+	cp "$STAGE/etc/xpkg/keys/freelinx.pub" "$STAGE.cfg/keys/"
+	printf '%s\n' "$REPO" >"$STAGE.cfg/repos.conf"
+	XPKG_CONFIG_DIR=$STAGE.cfg xpkg --quiet --no-scripts -f install $KEEP \
+		>"$STAGE.register.log" 2>&1 || {
+		tail -20 "$STAGE.register.log" >&2
+		die 'installing the packages from the repository failed'
+	}
+	rm -rf "$STAGE.cfg"
+	# One kernel's modules: the linux package's.  The tree carries modules of
+	# its own (6.6.21) that no kernel in this image can load.
+	kv=$(xpkg files linux | sed -n 's#^/lib/modules/\([^/]*\)/.*#\1#p' | head -1)
+	[ -n "$kv" ] || die 'the linux package installed no modules'
+	for d in "$STAGE"/lib/modules/*; do
+		[ "${d##*/}" = "$kv" ] || rm -rf "$d"
+	done
 else
 	# Every stack package, so that there is a database to remove against.
 	set -- $(ls "$PKGS"/*.xpkg | grep -v -E '/(ncurses|netsurf)-[0-9][^/]*\.xpkg$')
@@ -161,6 +247,9 @@ if [ "$SRC_IS_BASE" = yes ]; then
 	# remove: the source tree is the answer.  The unowned desktop files in
 	# step 4 are still swept, because those are files no package ever owned.
 	say '==> nothing to remove: the source has no desktop packages in it'
+	for p in $(echo $KEEP); do
+		xpkg info "$p" >/dev/null 2>&1 || die "kept package $p is not installed"
+	done
 else
 	for p in $(xpkg list | awk '{ print $1 }'); do
 		case " $(echo $KEEP) " in
@@ -298,7 +387,6 @@ fi
 # musl's headers (installed from the musl tree the stack was built with), the
 # kernel UAPI headers, musl's start files, and the tcc port with its runtime.
 MUSL_SRC=${MUSL_SRC:-$DESK/stack/work/src/musl/musl-1.2.5}
-SYSROOT=$DESK/stack/work/sysroot
 [ -f "$MUSL_SRC/config.mak" ] || die "no configured musl tree at $MUSL_SRC"
 make -s -C "$MUSL_SRC" DESTDIR="$STAGE" install-headers >/dev/null ||
 	die 'installing the musl headers failed'

@@ -6,10 +6,11 @@
 sh build-base.sh                 # -> out/freelinx-base-x86_64.iso (+ .sha256)
 ```
 
-It takes about two minutes. It needs `../Desktop-test` (FreeLinX-desk) to be
-built: `src/rootfs`, `kernel/bzImage`, `stack/work/pkgs`, the host xpkg in
-`stack/work/sysroot`. It also needs `../ports/packages`. Base is cut from the
-same tree as the desktop release, so build and tag the desktop first.
+It takes a few minutes. It needs `../src` (FreeLinX/src), `../ports/packages`
+and network access to the signed package repository, where the 25 packages
+base keeps are installed from. `BASE_FROM_DESKTOP=1` builds from a built
+`../Desktop-test` instead (its `src/rootfs`, `kernel/bzImage` and
+`stack/work/pkgs`).
 
 ## Test
 
@@ -34,8 +35,8 @@ If the console check fails with `dummy device`, the kernel has lost
 1. Put the version in `VERSION`. It goes into `/etc/os-release`, the banner
    and the boot menu.
 2. Commit, tag `v<VERSION>`, push.
-3. Build from a clean FreeLinX-desk tree (`mkrootfs.sh` refuses uncommitted
-   changes there) and test as above.
+3. Build from a clean src tree (`mkrootfs.sh` refuses uncommitted changes
+   there) and test as above.
 4. `gh release create v<VERSION> out/freelinx-base-x86_64.iso
    out/freelinx-base-x86_64.iso.sha256 -R FreeLinX/FreeLinX-base
    -F RELEASE-NOTES.md`
