@@ -590,6 +590,28 @@ grep -q '^sshd:' "$STAGE/etc/shadow" ||
 	die 'var/service/shell is gone, so nothing would put a prompt on the screen'
 
 # --- 6. checks ---------------------------------------------------------------
+# --- 5b. minimal ---------------------------------------------------------------
+# Things the source tree carries that a console system has no use for.
+#   bin/openssl       not a program: a 10 MB static library (ar archive) under a
+#                     program's name; the real openssl is /usr/bin/openssl
+#   *.a nobody owns   static libraries for C++ and stubs; there is no C++
+#                     compiler here and tcc links against libc.so
+#   vim testdirs      vim's own regression tests (13 MB)
+#   doom              a game and its 4 MB data file
+say '==> trimming to a minimal system'
+if [ -f "$STAGE/bin/openssl" ] && ! head -c4 "$STAGE/bin/openssl" | grep -q ELF; then
+	rm -f "$STAGE/bin/openssl"
+fi
+owned=$STAGE.owned
+for p in $(xpkg list | awk '{ print $1 }'); do xpkg files "$p"; done 2>/dev/null >"$owned" || :
+for f in "$STAGE"/usr/lib/*.a "$STAGE"/lib/*.a; do
+	[ -f "$f" ] || continue
+	grep -qxF "/${f#"$STAGE"/}" "$owned" || rm -f "$f"
+done
+rm -f "$owned"
+rm -rf "$STAGE"/usr/share/vim/vim*/*/testdir "$STAGE/bin/doom" "$STAGE/usr/games/doom" \
+	"$STAGE/usr/share/games/doom"
+
 say '==> checking that every library is still there'
 missing=$(find "$STAGE" -type f \( -perm -u+x -o -name '*.so*' \) | while read -r f; do
 	head -c4 "$f" 2>/dev/null | grep -q ELF || continue

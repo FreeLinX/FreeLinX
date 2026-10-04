@@ -6,11 +6,7 @@
 sh build-base.sh                 # -> out/freelinx-base-x86_64.iso (+ .sha256)
 ```
 
-It takes a few minutes. It needs `../src` (FreeLinX/src), `../ports/packages`
-and network access to the signed package repository, where the 25 packages
-base keeps are installed from. `BASE_FROM_DESKTOP=1` builds from a built
-`../Desktop-test` instead (its `src/rootfs`, `kernel/bzImage` and
-`stack/work/pkgs`).
+What it needs and what it does is in [README.md](README.md#building).
 
 ## Test
 
@@ -33,10 +29,14 @@ If the console check fails with `dummy device`, the kernel has lost
 ## Publish
 
 1. Put the version in `VERSION`. It goes into `/etc/os-release`, the banner
-   and the boot menu.
-2. Commit, tag `v<VERSION>`, push.
-3. Build from a clean src tree (`mkrootfs.sh` refuses uncommitted changes
-   there) and test as above.
+   and the boot menu. Update "Current release" in README.md.
+2. Build from clean trees (`mkrootfs.sh` refuses uncommitted changes in src)
+   with `SERIAL=1`, the configuration the install test drives, and run every
+   test above. Release that ISO, not another build.
+3. Commit, tag `v<VERSION>`, push.
 4. `gh release create v<VERSION> out/freelinx-base-x86_64.iso
    out/freelinx-base-x86_64.iso.sha256 -R FreeLinX/FreeLinX-base
-   -F RELEASE-NOTES.md`
+   --notes-file NOTES.md`, then download the ISO from the release and check
+   its sha256.
+
+Never replace the files of a published release: bump the version instead.

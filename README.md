@@ -1,45 +1,41 @@
 # FreeLinX base
 
-Current release: **1.0.11** ([release notes](RELEASE-NOTES.md)).
+Current release: **1.0.15** — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest)
 
 FreeLinX without a desktop: a shell on the console, `xpkg` for everything else.
+Linux 6.18, a NetBSD userland, musl, LLVM-built, no GNU code (`check-nognu`,
+0 failing).
 
 ```
-out/freelinx-base-x86_64.iso     278 MB, boots on BIOS and UEFI
+freelinx-base-x86_64.iso     ~290 MB, boots on BIOS and UEFI
 ```
-
-Base is the desktop release's system with the desktop taken out. It has the same
-Linux 6.18 kernel, the same NetBSD userland, the same OpenSSL, OpenSSH and xpkg,
-and it passes the same no-GNU gate (`check-nognu.sh`, 0 failing).
 
 ## What is on it
 
-25 packages from the desktop stack plus four console ports, with no X11, GTK,
-Mesa or fonts:
-
 - **System:** runit, mdevd, dhcpcd, wpa_supplicant and `flxwifi`, ntpd, dbus,
-  doas, OpenSSH (ssh and sshd), curl, git, tmux, htop, nnn, vim (also as `vi`),
-  bc, e2fsprogs, dosfstools.
-- **Added for the console:** `man` (mandoc, with about 200 NetBSD manual pages),
-  `less`, `ip` (iproute2), `lsof`, and `mksh` as the login shell (arrow keys,
-  history, Tab completion). `/bin/sh` stays the NetBSD sh for scripts.
+  doas, OpenSSH 10.5 (ssh and sshd), curl, git, tmux, htop, nnn, vim (also
+  `vi`), bc, e2fsprogs, dosfstools.
+- **Console:** `man` (mandoc, ~200 NetBSD manual pages), `less`, `ip`
+  (iproute2), `lsof`, and `mksh` as the login shell (arrow keys, history, Tab).
+  `/bin/sh` stays the NetBSD sh for scripts.
 - **A C compiler:** `cc` (tcc) with the musl and kernel headers.
-- **Installing:** `xsetup` puts the system on a disk, and `flxupgrade`
-  upgrades it from a newer ISO.
+- **Installing:** `xsetup` puts the system on a disk; `flxupgrade` upgrades an
+  installed system from a newer ISO.
 
-Anything else comes from `xpkg install <name>`. The repository has 425 packages.
+No X11, GTK, Mesa or fonts. Everything else: `xpkg install <name>` (the signed
+repository has ~425 packages).
 
 ## Installing
 
-Boot the ISO. You get a root shell on tty1. Run:
+Boot the ISO. The live system gives a root shell on the screen (tty1–tty3) and
+on the serial line. Run:
 
 ```sh
 xsetup
 ```
 
-`xsetup` is a manual installer: thirteen steps, one question at a time, and
-each step is recorded, so an install that is interrupted carries on where it
-stopped.
+Thirteen steps, one question at a time. Each step is recorded, so an
+interrupted install carries on where it stopped.
 
 ```
 setup-keymap      setup-hostname    setup-interfaces  setup-passwd
@@ -56,77 +52,116 @@ xsetup --reset NAME     # forget one step, so it runs again
 xsetup setup-sshd       # run one step on its own
 ```
 
-`setup-disk` is the step that writes to a disk. It asks whether to run from RAM
-(nothing is written) or to install, then asks which disk, and it erases nothing
-until you type `yes`. An install lays the disk out as:
+`setup-disk` is the only step that writes to a disk. It erases nothing until you
+type `yes`. The disk is laid out as:
 
 | Partition | Contents |
 |---|---|
-| ESP (1 GB) | the kernel and the system image, booted by Limine on BIOS and UEFI |
+| ESP (1 GB) | kernel and system image, booted by Limine on BIOS and UEFI |
 | BIOS boot | Limine's BIOS stage |
-| FLX_SYS | persistent `/usr /etc /var /root /bin /sbin /lib`, so packages and settings survive a reboot |
+| FLX_SYS | persistent `/usr /etc /var /root /bin /sbin /lib` (packages and settings survive reboots) |
 | FLX_HOME | `/home` |
 
-The system image is the running system with everything the earlier steps set,
-so the installed system starts with the same keymap, hostname, network, users,
-time zone and services. It asks for a login on tty1, and on ttyS1 for a serial
-console.
+The installed system starts with the keymap, hostname, network, users, time
+zone and services the steps set, and **asks for a login on every console**.
 
 ## Building
 
-```sh
-sh build-base.sh
+### What it needs
+
+The build runs on any x86_64 Linux machine. It does **not** need a built
+desktop (FreeLinX-desk).
+
+Put these checkouts next to each other:
+
+```
+FreeLinX/
+├── FreeLinX-base/   this repository
+├── src/             github.com/FreeLinX/src       the root filesystem
+├── ports/           github.com/FreeLinX/ports     console ports, man pages
+└── drivers/         github.com/FreeLinX/drivers   Limine (bootloader/limine-binary)
 ```
 
-It needs, next to this checkout, `../src` (FreeLinX/src) and `../ports`, and
-network access to the signed package repository. It does not need a built
-FreeLinX-desk. It does the following:
+```sh
+mkdir FreeLinX && cd FreeLinX
+for r in FreeLinX-base src ports drivers; do
+    git clone https://github.com/FreeLinX/$r.git
+done
+```
 
-1. `scripts/mkrootfs.sh` copies `src/rootfs` and installs the 25 packages base
-   keeps (musl, openssl, dbus, linux, toybox, xpkg, ...) by name from the
-   signed package repository, so the image has a package database. It adds the
-   console ports, the manual pages and xpkg's signing key. It fails if
-   `flxconsole` would give an installed system a shell instead of a login, if
-   any program needs a library that is gone, if any graphical program is left,
-   or if `scripts/check-nognu.sh` finds GNU code. The kernel is the linux
-   package's. `BASE_FROM_DESKTOP=1` builds from a built `../Desktop-test`
-   instead, as 1.0.8 to 1.0.13 were.
-2. Firmware from `firmware-<kver>.tar.xz`, if it is there.
-3. The system is packed as one xz initramfs and put on a Limine ISO labelled
-   `FREELINX_LIVE`, which is the label `flxupgrade` looks for.
+You also need the following:
 
-`SERIAL=1 sh build-base.sh` also puts the console on ttyS0, for testing in QEMU.
+| Need | Why | Where it is looked for |
+|---|---|---|
+| `xorriso`, `cpio`, `xz`, `curl`, `readelf`, `git` | packing the image, fetching | `PATH` |
+| a host `xpkg` | installs the packages into the image | `XPKG=`, then `xpkg` on `PATH` |
+| a musl sysroot | tcc's headers and `crt*.o` | `SYSROOT=`, then `~/freelinx/toolchain/x86_64-linux-musl` (built by [toolchain](https://github.com/FreeLinX/toolchain)) |
+| network | the 25 base packages come from the signed repository | `REPO=` (default: the FreeLinX repository on Hugging Face) |
+| `qemu-system-x86_64`, OVMF | only for the install test | `PATH`, `/usr/share/OVMF` |
 
-## Tested
+The package index is checked against `keys/freelinx.pub` (Ed25519) before
+anything from it is installed.
 
-In QEMU/KVM with 2 GB RAM, for 1.0.8. The details are in
-[RELEASE-NOTES.md](RELEASE-NOTES.md).
-
-- **BIOS:** live boot, an install with presets, boot from the disk, login,
-  `xpkg install` over HTTPS, and a reboot that keeps a file and a package.
-- **UEFI (OVMF):** an install answered by hand with no presets, boot from the
-  disk, login as root and as the user.
-- **Console:** a framebuffer console with bochs VGA, and with `simpledrm` alone.
-- **WiFi:** WPA2 against `mac80211_hwsim` + `hostapd`.
-
-Not tested yet: real hardware.
-
-## Tests
-
-| Suite | What it covers |
-|---|---|
-| `test-ui.sh` | `lib/ui.sh`: the menus, the prompts, their edge cases |
-| `test-setup-disk.sh` | the disk step's conversation: layout, sizes, guards, dry runs |
-| `test-destructive.sh` | what an install does to bytes, with the image's own tools on image files |
-| `test-xsetup-qemu.sh` | all 13 steps in a VM, then boots the disk and checks the result |
+### Build
 
 ```sh
-sh test-ui.sh && sh test-setup-disk.sh && sh test-destructive.sh
+cd FreeLinX-base
+sh build-base.sh            # -> out/freelinx-base-x86_64.iso (+ .sha256)
+```
+
+It takes a few minutes. The build does this:
+
+1. **`scripts/mkrootfs.sh`** makes the system:
+   - copies `../src/rootfs`;
+   - installs the 25 packages base keeps (musl, openssl, dbus, linux,
+     linux-firmware, toybox, xpkg, …) by name from the signed repository, so
+     the image has a package database;
+   - adds the console ports (mandoc, less, iproute2, lsof, mksh, stty, tcc),
+     the manual pages and the repository key;
+   - trims everything a console system does not use.
+
+   It refuses to continue when:
+   - the source tree has uncommitted changes;
+   - `flxconsole` would give an installed system a shell instead of a login;
+   - a program needs a library that is missing;
+   - a graphical program is left;
+   - `scripts/check-nognu.sh` finds GNU code.
+2. **Kernel:** the linux package's own (`/usr/lib/linux/bzImage-*`), so it
+   matches `/lib/modules`.
+3. **Image:** the system is packed as one xz initramfs and put on a Limine
+   ISO labelled `FREELINX_LIVE`, which is the label `flxupgrade` looks for.
+
+### Options
+
+| Variable | Effect |
+|---|---|
+| `SERIAL=1` | kernel console on ttyS0 too (QEMU tests, headless machines) |
+| `OUT=path.iso` | where the ISO goes |
+| `ALLOW_DIRTY=1` | build from a source tree with uncommitted changes (testing only) |
+| `FLX_HW_TARBALL=…` | extra firmware (`firmware-<kver>.tar.xz` from the desktop's `build-firmware.sh`) |
+| `BASE_FROM_DESKTOP=1` | build from a built `../Desktop-test` instead (how 1.0.8–1.0.13 were made) |
+
+## Testing
+
+```sh
+sh test-ui.sh               # xsetup's menus and prompts
+sh test-setup-disk.sh       # the disk step: layout, sizes, guards, dry runs
+sh test-destructive.sh      # what an install does to bytes, with the image's own tools
+sh test-banner.sh           # the console banner
+
 SERIAL=1 OUT=out/freelinx-base-serial.iso sh build-base.sh
 sh test-xsetup-qemu.sh            # BIOS
 sh test-xsetup-qemu.sh --uefi     # UEFI (OVMF)
 ```
 
+`test-xsetup-qemu.sh` boots the ISO in QEMU/KVM, answers all 13 xsetup steps,
+boots the installed disk without the medium, and logs in as the user and as
+root. It checks hostname, time zone, groups, shell, sshd, ntpd, the UUID pins,
+FLX_SYS and the console, then reboots and checks that a file written in the
+user's home is still there.
+
+Releasing is described in [RELEASE.md](RELEASE.md).
+
 ## Licence
 
-BSD-2-Clause.
+BSD-2-Clause. See [LICENSE](LICENSE).

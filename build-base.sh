@@ -86,7 +86,13 @@ if [ -z "${KERNEL:-}" ]; then
 fi
 
 mkdir -p "$STAGE/boot"
-cp -f "$KERNEL" "$STAGE/boot/vmlinuz"
+# The linux package's kernel is already in the image: link to it rather than
+# carry a second 16 MB copy.  setup-disk copies /boot/vmlinuz to the disk, and
+# cp follows the link.
+case $KERNEL in
+"$STAGE"/*) ln -sf "../${KERNEL#"$STAGE"/}" "$STAGE/boot/vmlinuz" ;;
+*) cp -f "$KERNEL" "$STAGE/boot/vmlinuz" ;;
+esac
 
 # Hardware blobs: firmware, and the kernel's modules.
 #
