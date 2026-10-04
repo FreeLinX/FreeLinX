@@ -47,9 +47,26 @@ qemu-img create -f qcow2 "$W/disk.qcow2" 12G >/dev/null
 
 FW=
 if [ "$UEFI" = 1 ]; then
-	OVMF=/usr/share/OVMF
-	cp "$OVMF/OVMF_VARS_4M.fd" "$W/vars.fd"
-	FW="-machine q35 -drive if=pflash,format=raw,readonly=on,file=$OVMF/OVMF_CODE_4M.fd -drive if=pflash,format=raw,file=$W/vars.fd"
+	# The firmware is OVMF, and it is installed under two names: Fedora and
+	# openSUSE ship /usr/share/OVMF/OVMF_CODE_4M.fd, Debian and Ubuntu ship
+	# /usr/share/ovmf/x64/OVMF_CODE.4m.fd.  Looking for one of them is a test
+	# that passes on the machine it was written on and cannot run on the next.
+	ovmf_code=
+	ovmf_vars=
+	for d in /usr/share/OVMF /usr/share/ovmf/x64 /usr/share/ovmf /usr/share/edk2-ovmf; do
+		for pair in 'OVMF_CODE_4M.fd OVMF_VARS_4M.fd' 'OVMF_CODE.4m.fd OVMF_VARS.4m.fd' \
+			'OVMF_CODE.fd OVMF_VARS.fd'; do
+			# shellcheck disable=SC2086  # the pair is two words on purpose
+			set -- $pair
+			if [ -z "$ovmf_code" ] && [ -f "$d/$1" ] && [ -f "$d/$2" ]; then
+				ovmf_code=$d/$1
+				ovmf_vars=$d/$2
+			fi
+		done
+	done
+	[ -n "$ovmf_code" ] || { echo "no OVMF firmware found (looked in /usr/share/OVMF, /usr/share/ovmf)" >&2; exit 2; }
+	cp "$ovmf_vars" "$W/vars.fd"
+	FW="-machine q35 -drive if=pflash,format=raw,readonly=on,file=$ovmf_code -drive if=pflash,format=raw,file=$W/vars.fd"
 fi
 KVM=
 [ -w /dev/kvm ] && KVM='-enable-kvm -cpu host'
@@ -179,7 +196,7 @@ check 'the time zone is Asia/Baku' "$out" 'Asia/Baku'
 # sync the file is still in the guest's page cache when QEMU goes away and the
 # reboot check below measures when the host flushed its writeback, not whether
 # /etc is on the disk.
-out=$(serial login root r00tpw 'for d in usr etc var root bin sbin lib; do grep -q " /$d " /proc/mounts || echo "NOT""-MOUNTED $d"; done; echo "trees""-ok $(awk "\$2==\"/etc\"{print \$1}" /proc/mounts)"; echo "who=$(id -un)"; ls /var/service; tail -2 /var/log/sshd.log; cat /etc/flx-disk; cat /sys/class/vtconsole/vtcon1/name; grep -c "^live:" /etc/passwd; echo persisted > /etc/flx-test-marker; sync; cat /etc/flx-test-marker')
+out=$(serial login root r00tpw 'for d in usr etc var root bin sbin lib; do grep -q " /$d " /proc/mounts || echo "NOT""-MOUNTED $d"; done; echo "trees""-ok $(awk "\$2==\"/etc\"{print \$1}" /proc/mounts)"; echo "who=$(id -un)"; ls /var/service; tail -2 /var/log/sshd.log; cat /etc/flx-disk; cat /sys/class/vtconsole/vtcon1/name; grep -c "^live:" /etc/passwd; echo persisted > /etc/flx-test-marker; sync; cat /etc/flx-test-marker; for f in null tty console kmsg; do echo "$f $(ls -l /dev/$f | cut -c1-10)"; done; grep -c "^ Installed'' system:" /etc/motd /etc/issue')
 check 'the seven system trees are mount points' "$out" 'trees-ok'
 case $out in *NOT-MOUNTED*) fail=$((fail + 1)); echo '  FAIL a system tree was left in RAM' ;; *) pass=$((pass + 1)); echo '  ok   no system tree was left in RAM' ;; esac
 check '/etc is on the pinned system partition' "$out" 'trees-ok /dev/vda3'
@@ -189,6 +206,33 @@ check 'sshd is listening' "$out" 'Server listening on'
 check 'ntpd is a service' "$out" 'ntpd'
 check 'the partitions are pinned' "$out" 'FLX_SYS_UUID='
 check 'the console is a framebuffer' "$out" 'frame buffer device'
+
+# The modes mdevd hands the nodes the kernel already made.  devtmpfs creates
+# these before mdevd starts, and mdevd's own default for a node no rule names
+# is 0660 root:root, so a rule that is missing or that never matches leaves
+# /dev/null unwritable for a normal user and the login dies on the first
+# redirect in /etc/profile.  cut -c1-10 is the mode on its own, and each line
+# is named by the device it came from, so the answer cannot be found in the
+# command the console echoed back.
+check '/dev/null is 0666' "$out" 'null crw-rw-rw-'
+check '/dev/tty is 0666' "$out" 'tty crw-rw-rw-'
+check '/dev/console is 0600' "$out" 'console crw-------'
+check '/dev/kmsg is 0660' "$out" 'kmsg crw-rw----'
+
+# The banner is rewritten before the image is packed, so a machine that has
+# just been installed must not go on reading "Live system: nothing is kept
+# until it is installed" - the opposite of the truth, and the first thing on
+# the screen.  Both files, because sshd shows /etc/issue before the password
+# prompt.  The needle is spelled "Installed'' system:" in the command so that
+# the console's echo of the command cannot be what satisfies the check.
+case $out in
+*'/etc/motd:1'*) pass=$((pass + 1)); echo '  ok   the banner says this system is installed' ;;
+*) fail=$((fail + 1)); echo '  FAIL the banner still calls an installed system a live one' ;;
+esac
+case $out in
+*'/etc/issue:1'*) pass=$((pass + 1)); echo '  ok   the sshd pre-login banner says it too' ;;
+*) fail=$((fail + 1)); echo '  FAIL /etc/issue still calls an installed system a live one' ;;
+esac
 stop
 
 echo '== reboot: what was written stays =='
