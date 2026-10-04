@@ -151,8 +151,18 @@ sleep 10
 
 echo '== the live system =='
 out=$(serial run 'fastfetch --pipe true 2>&1 | head -8' 30)
-check 'fastfetch shows the FreeLinX logo' "$out" '|_|  |_|  \___|\___|_____|'
+check 'fastfetch shows the FreeLinX logo' "$out" '@@##@@@@*@@##%%'
 check 'fastfetch names the system' "$out" 'OS: FreeLinX'
+# The live system runs from the medium (squashfs + a tmpfs overlay), not from a
+# copy in RAM: / is the overlay and a fresh session uses well under 150 MB.
+out=$(serial run 'echo "live""-root $(awk "\$2==\"/\"{print \$3}" /proc/mounts)"; free -m | awk "/^Mem/ { print \"used\" \"=\" \$3 }"' 15)
+check 'the live root is an overlay on the medium' "$out" 'live-root overlay'
+used=$(printf '%s\n' "$out" | sed -n 's/^used=\([0-9]*\).*/\1/p' | head -1)
+if [ -n "$used" ] && [ "$used" -lt 150 ]; then
+	pass=$((pass + 1)); echo "  ok   the live system uses ${used} MB of RAM"
+else
+	fail=$((fail + 1)); echo "  FAIL the live system uses ${used:-?} MB of RAM (150 at most)"
+fi
 
 echo '== xsetup, all 13 steps =='
 # keymap us, hostname, eth0 dhcp, root password twice, region 6 (Asia) and

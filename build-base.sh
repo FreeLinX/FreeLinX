@@ -8,8 +8,8 @@
 #
 # Base is the desktop release's system with the desktop taken out
 # (scripts/mkrootfs.sh), so it has the same kernel, the same userland and the
-# same no-GNU gate.  It boots the same way the desktop ISO does: the whole
-# system is the initramfs, unpacked into ramfs, and /init runs runit.
+# same no-GNU gate.  The system is a squashfs on the medium; a small initramfs
+# (scripts/flxlive.c) mounts it with a tmpfs overlay and starts its /init.
 #
 # Installing is `xsetup`: the desktop's flxinstall under base's name.  It is the one
 # that matches /init's boot model (system image on the ESP, persistent
@@ -238,11 +238,45 @@ tail -1 "$WORK/nognu.txt"
 
 # xz with CRC32 (what the kernel's decoder accepts).  Not zstd: Linux ignores a
 # cpio appended after a zstd image, and flxinstall appends one.
-step 'packing the initramfs'
+# --- the live medium's system --------------------------------------------------
+# The live system is not unpacked into RAM.  It goes on the medium as one
+# squashfs (zstd: the compressor this kernel has), and a small initramfs -
+# flxlive as /init and a static sh for when it cannot go on - mounts it
+# read-only with a tmpfs over it (overlayfs) and starts the system's /init.
+# RAM then holds the session's changes and the page cache, as on other live
+# media, instead of the whole system.
+command -v mksquashfs >/dev/null 2>&1 || die 'missing tool: mksquashfs (squashfs-tools)'
+step 'packing the system (squashfs)'
 mkdir -p "$ISO/boot/limine" "$ISO/EFI/BOOT"
-(cd "$STAGE" && find . -print0 |
+mksquashfs "$STAGE" "$ISO/boot/root.sfs" -comp zstd -Xcompression-level 19 -b 1M \
+	-all-root -noappend -quiet >/dev/null || die 'mksquashfs failed'
+
+step 'building the live initramfs'
+# flxlive is built here with the musl toolchain: LIVECC, or the desk's flx-cc,
+# or clang against the musl sysroot.
+if [ -z "${LIVECC:-}" ]; then
+	if [ -x "$DESK/stack/work/bin/flx-cc" ]; then
+		LIVECC=$DESK/stack/work/bin/flx-cc
+	else
+		for sr in "${SYSROOT:-}" "$DESK/stack/work/sysroot" "$HOME/freelinx/toolchain/x86_64-linux-musl"; do
+			[ -n "$sr" ] && [ -d "$sr" ] && break
+			sr=
+		done
+		[ -n "$sr" ] && command -v clang >/dev/null 2>&1 ||
+			die 'no musl C compiler for flxlive: set LIVECC, or SYSROOT with clang on PATH'
+		LIVECC="clang --target=x86_64-linux-musl --sysroot=$sr -fuse-ld=lld -rtlib=compiler-rt -unwindlib=none"
+	fi
+fi
+IRD=$WORK/initrd
+mkdir -p "$IRD/bin" "$IRD/proc" "$IRD/sys" "$IRD/dev" "$IRD/run" "$IRD/newroot"
+# shellcheck disable=SC2086  # LIVECC may be a command with arguments
+$LIVECC -O2 -static -o "$IRD/init" "$HERE/scripts/flxlive.c" || die 'building flxlive failed'
+cp "$STAGE/bin/sh" "$IRD/bin/sh"
+sh "$HERE/scripts/check-nognu.sh" "$IRD" >/dev/null || die 'the live initramfs has GNU code in it'
+(cd "$IRD" && find . -print0 |
 	cpio --null -o --quiet --format=newc --owner=0:0 |
 	xz -T0 -6 --check=crc32) >"$ISO/boot/initramfs.img.gz"
+say "    system $(du -h "$ISO/boot/root.sfs" | cut -f1), initramfs $(du -h "$ISO/boot/initramfs.img.gz" | cut -f1)"
 
 # --- the medium ----------------------------------------------------------------
 cp -f "$KERNEL" "$ISO/boot/bzImage"
@@ -255,9 +289,6 @@ if [ "${SERIAL:-0}" = 1 ]; then
 	SERIAL_ARGS='console=ttyS0,115200'
 	SERIAL_CONF='serial: yes'
 fi
-# rootfstype=ramfs: the unpacked system is bigger than tmpfs' default cap of
-# half the RAM on a 2 GB machine.
-#
 # console=tty0 is last, so /dev/console is the screen and not the serial line.
 # Every console= on the line gets the kernel's output either way; what the last
 # one decides is where /init and everything it starts write.  That is the
@@ -283,13 +314,13 @@ interface_branding: FreeLinX $VERSION base
     protocol: linux
     kernel_path: boot():/boot/bzImage
     module_path: boot():/boot/initramfs.img.gz
-    cmdline: rdinit=/init rootfstype=ramfs $SERIAL_ARGS console=tty0
+    cmdline: rdinit=/init $SERIAL_ARGS console=tty0
 
 /Rescue shell
     protocol: linux
     kernel_path: boot():/boot/bzImage
     module_path: boot():/boot/initramfs.img.gz
-    cmdline: rdinit=/init rootfstype=ramfs $SERIAL_ARGS console=tty0 flx.rescue=1
+    cmdline: rdinit=/init $SERIAL_ARGS console=tty0 flx.rescue=1
 EOF
 
 step "composing ${OUT##*/}"

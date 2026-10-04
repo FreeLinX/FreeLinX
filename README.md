@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml/badge.svg)](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml)
 
-Current release: **1.2.0** (stable) — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest)
+Current release: **1.3.0** (stable) — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest)
 
 FreeLinX without a desktop: a shell on the console, `xpkg` for everything else.
 Linux 6.18, a NetBSD userland, musl, LLVM-built, no GNU code (`check-nognu`,
@@ -29,8 +29,10 @@ repository has ~425 packages).
 
 ## Installing
 
-Boot the ISO. The live system gives a root shell on the screen (tty1–tty3) and
-on the serial line. Run:
+Boot the ISO. The live system runs from the medium itself: the system is a
+squashfs on the ISO, and only what the session changes goes to RAM (a tmpfs
+overlay), so it starts in about 60 MB. It gives a root shell on the screen
+(tty1–tty3) and on the serial line. Run:
 
 ```sh
 xsetup
@@ -129,7 +131,8 @@ You also need the following:
 
 | Need | Why | Where it is looked for |
 |---|---|---|
-| `xorriso`, `cpio`, `xz`, `curl`, `readelf`, `git` | packing the image, fetching | `PATH` |
+| `xorriso`, `mksquashfs` (squashfs-tools), `cpio`, `xz`, `curl`, `readelf`, `git` | packing the medium, fetching | `PATH` |
+| a musl C compiler | builds `scripts/flxlive.c`, the live medium's 46 KB init | `LIVECC=`, then the desk's `flx-cc`, then `clang` with the musl sysroot |
 | a host `xpkg` | installs the packages into the image | `XPKG=`, then `xpkg` on `PATH` |
 | a musl sysroot | tcc's headers and `crt*.o` | `SYSROOT=`, then `~/freelinx/toolchain/x86_64-linux-musl` (built by [toolchain](https://github.com/FreeLinX/toolchain)) |
 | network | the 25 base packages come from the signed repository | `REPO=` (default: the FreeLinX repository on Hugging Face) |
@@ -164,8 +167,11 @@ It takes a few minutes. The build does this:
    - `scripts/check-nognu.sh` finds GNU code.
 2. **Kernel:** the linux package's own (`/usr/lib/linux/bzImage-*`), so it
    matches `/lib/modules`.
-3. **Image:** the system is packed as one xz initramfs and put on a Limine
-   ISO labelled `FREELINX_LIVE`, which is the label `flxupgrade` looks for.
+3. **Medium:** the system is packed as `boot/root.sfs` (squashfs, zstd). The
+   initramfs is about 300 KB: `flxlive` as `/init` and a static `sh`.
+   `flxlive` finds the volume `FREELINX_LIVE`, mounts the squashfs read-only
+   with a tmpfs overlay, moves the medium to `/media/flx`, and hands over to
+   the system's `/init`. All of it goes on a Limine ISO for BIOS and UEFI.
 
 ### Options
 
