@@ -25,7 +25,7 @@
 #   LIMINE_DIR Limine binaries                   (default: $DESK/iso/limine)
 #   OUT        the ISO to write    (default: out/freelinx-base-x86_64.iso)
 #   SERIAL=1   also put the console on ttyS0 (for tests)
-#   FLX_FIRMWARE_TARBALL  firmware-<kver>.tar.xz (default: $DESK/firmware-*.tar.xz)
+#   FLX_HW_TARBALL       lib/firmware + lib/modules (default: $DESK/firmware-*.tar.xz)
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -58,16 +58,44 @@ DESK=$DESK sh "$HERE/scripts/mkrootfs.sh" -o "$STAGE"
 mkdir -p "$STAGE/boot"
 cp -f "$KERNEL" "$STAGE/boot/vmlinuz"
 
-# Firmware is not in git (vendor blobs); without it real WiFi, GPUs and audio
-# codecs do not come up.  The linux-firmware package already carries the
-# common set; the tarball adds the rest when it is there.
-FW=${FLX_FIRMWARE_TARBALL:-}
-if [ -z "$FW" ]; then
-	for c in "$DESK"/firmware-*.tar.xz; do [ -f "$c" ] && FW=$c && break; done
+# Hardware blobs: firmware, and the kernel's modules.
+#
+# Firmware is not in git - vendor blobs - and without it real WiFi, GPUs and
+# audio codecs do not come up.  The linux-firmware package carries the common
+# set; the tarball adds the rest when it is there.
+#
+# Modules come from the same tarball because they arrive the same way when they
+# arrive at all.  The linux package carries them, and that package is built by
+# the desktop stack, so a base built from this repository has no other source for
+# them.  Which left the tree's own /lib/modules - 6.6.21 - sitting in the image
+# beside a 6.6.157 kernel, where modprobe cannot load any of it.  So the
+# directory is replaced rather than added to, and the kernel the image boots is
+# the only version left in it.
+HW=${FLX_HW_TARBALL:-${FLX_FIRMWARE_TARBALL:-}}
+if [ -z "$HW" ]; then
+	for c in "$DESK"/firmware-*.tar.xz; do [ -f "$c" ] && HW=$c && break; done
 fi
-if [ -n "$FW" ] && [ -f "$FW" ]; then
-	step "firmware from ${FW##*/}"
-	tar -xf "$FW" -C "$STAGE" lib/firmware
+if [ -n "$HW" ] && [ -f "$HW" ]; then
+	step "hardware blobs from ${HW##*/}"
+	tar -xf "$HW" -C "$STAGE" lib/firmware 2>/dev/null || :
+	if [ -d "$STAGE/lib/modules" ]; then
+		rm -rf "${STAGE:?}/lib/modules"
+	fi
+	tar -xf "$HW" -C "$STAGE" lib/modules 2>/dev/null || :
+fi
+# One kernel, one module directory.  The tree this image was built from carried
+# 6.6.21 modules, and pairing those with a 6.6.157 kernel gives an image that
+# boots with no loadable module at all - so a second version here is refused
+# rather than shipped.  A tarball built for a different kernel is a packaging
+# mistake and this is where it shows; the version is named because the number in
+# the path is the only place it appears.
+if [ -d "$STAGE/lib/modules" ]; then
+	set -- "$STAGE"/lib/modules/*/
+	if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
+		die "lib/modules holds $# kernel versions; it must hold exactly one"
+	fi
+	kv=${1%/}; kv=${kv##*/}
+	say "    modules for $kv"
 fi
 
 # Modes git cannot carry, as the desktop image build sets them.
