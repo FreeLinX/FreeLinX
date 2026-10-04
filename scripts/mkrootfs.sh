@@ -101,48 +101,117 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 (cd "$SRC" && tar -cf - .) | (cd "$STAGE" && tar -xf -)
 
+# --- 1b. is this source tree already a base system? ---------------------------
+# Everything below was written for one answer: the source is the desktop's
+# rootfs, and base is that with the desktop taken out.  So it installs every
+# stack package and then removes the hundred the desktop needs and base does
+# not, which leaves a package database describing what is there.
+#
+# src/rootfs is not the desktop's rootfs.  It has already been through that: no
+# Xorg, no openbox, no libX11, no feh, no dzen2.  Installing the desktop packages
+# onto it has nothing to install them onto and stops on the first one:
+#
+#     error: dzen2 needs libXft (not installed, and no repository to fetch it from)
+#
+# and the packages that would build the database - dbus, openssl, musl, xpkg,
+# netbsd-curses and twenty more - are produced by the desktop stack into
+# stack/work/pkgs, which is a build output of a tree that is not this
+# repository.  Ten of the twenty-five have no recipe in ports either.
+#
+# So when the source is already a base system, the package steps are skipped and
+# the files are taken as they are.  The programs base cannot boot without are
+# checked by name instead, further down, because `xpkg info` has nothing to ask.
+#
+# Set BASE_FROM_DESKTOP=1 to force the old path, which is what building base from
+# a built Desktop-test tree does.
+if [ "${BASE_FROM_DESKTOP:-0}" = 1 ]; then
+	SRC_IS_BASE=no
+else
+	if [ -e "$SRC/usr/bin/Xorg" ] || [ -e "$SRC/usr/lib/libX11.so" ]; then
+		SRC_IS_BASE=no
+	else
+		SRC_IS_BASE=yes
+	fi
+fi
+
 # --- 2. register -------------------------------------------------------------
-# ncurses and netsurf are transitional packages only, as in build-image.sh.
-set -- $(ls "$PKGS"/*.xpkg | grep -v -E '/(ncurses|netsurf)-[0-9][^/]*\.xpkg$')
-say "==> registering $# packages"
-xpkg --quiet --no-scripts install "$@" >"$STAGE.register.log" 2>&1 || {
-	tail -20 "$STAGE.register.log" >&2
-	die 'registering packages failed'
-}
+if [ "$SRC_IS_BASE" = yes ]; then
+	say '==> source is already a base system: keeping its files as they are'
+	say '    (BASE_FROM_DESKTOP=1 to install the stack packages instead)'
+else
+	# Every stack package, so that there is a database to remove against.
+	set -- $(ls "$PKGS"/*.xpkg | grep -v -E '/(ncurses|netsurf)-[0-9][^/]*\.xpkg$')
+	say "==> registering $# packages"
+	xpkg --quiet --no-scripts install "$@" >"$STAGE.register.log" 2>&1 || {
+		tail -20 "$STAGE.register.log" >&2
+		die 'registering packages failed'
+	}
+fi
 find "$STAGE/etc" -name '*.xpkgnew' -type f -delete
 
 # --- 3. remove the desktop packages ------------------------------------------
+# Nothing to remove: step 2 installed only what KEEP names, and anything the
+# trimmed rootfs still carries that no package owns is dealt with by UNOWNED
+# below.  The loop is kept because it is what says so out loud if that stops
+# being true - a package installed here that KEEP does not name is a bug in KEEP.
 drop=
-for p in $(xpkg list | awk '{ print $1 }'); do
-	case " $(echo $KEEP) " in
-	*" $p "*) ;;
-	*) drop="$drop $p" ;;
-	esac
-done
-say "==> removing $(echo $drop | wc -w) desktop packages"
-# -f: removing a library and everything that needs it in one call is the point.
-xpkg --quiet --no-scripts -f remove $drop >"$STAGE.remove.log" 2>&1 || {
-	tail -20 "$STAGE.remove.log" >&2
-	die 'removing the desktop packages failed'
-}
-for p in $(echo $KEEP); do
-	xpkg info "$p" >/dev/null 2>&1 || die "kept package $p is not installed"
-done
+if [ "$SRC_IS_BASE" = yes ]; then
+	# There is no database and nothing was installed, so there is nothing to
+	# remove: the source tree is the answer.  The unowned desktop files in
+	# step 4 are still swept, because those are files no package ever owned.
+	say '==> nothing to remove: the source has no desktop packages in it'
+else
+	for p in $(xpkg list | awk '{ print $1 }'); do
+		case " $(echo $KEEP) " in
+		*" $p "*) ;;
+		*) drop="$drop $p" ;;
+		esac
+	done
+	if [ -n "$drop" ]; then
+		say "==> removing $(echo $drop | wc -w) packages KEEP does not name"
+		# -f: removing a library and everything that needs it in one call is the
+		# point.
+		xpkg --quiet --no-scripts -f remove $drop >"$STAGE.remove.log" 2>&1 || {
+			tail -20 "$STAGE.remove.log" >&2
+			die 'removing the desktop packages failed'
+		}
+	fi
+	for p in $(echo $KEEP); do
+		xpkg info "$p" >/dev/null 2>&1 || die "kept package $p is not installed"
+	done
+fi
 
 # --- 4. unowned desktop files ------------------------------------------------
 say '==> removing unowned desktop files'
+# /usr/sbin/xsetup is the desktop's installer wrapper.  It looks for the
+# installer on the medium it booted from and says "medium is not in the drive"
+# when there is none, so on base it gets in front of base's own installer and
+# stops it installing anything at all.  Base's installer is xsetup, run from
+# the shell, and it reads the medium itself.
+if [ -e "$STAGE/usr/sbin/xsetup" ]; then
+	say '    removing the desktop installer wrapper /usr/sbin/xsetup'
+	rm -f "$STAGE/usr/sbin/xsetup"
+fi
 for p in $UNOWNED; do
 	if [ -e "$STAGE/$p" ] || [ -L "$STAGE/$p" ]; then
 		rm -rf "${STAGE:?}/$p"
 	fi
 done
 # licenses of packages that are gone
-for d in "$STAGE"/usr/share/licenses/*; do
-	[ -d "$d" ] || continue
-	n=${d##*/}
-	case $n in SOURCES|netbsd|musl-fts|linux-pam|llvm-rt|elftoolchain) continue ;; esac
-	xpkg info "$n" >/dev/null 2>&1 || rm -rf "$d"
-done
+if [ "$SRC_IS_BASE" = yes ]; then
+	# No database, so `xpkg info` fails for every name and this would delete
+	# every licence in the tree - including the ones belonging to the packages
+	# that are installed.  The packages are all still here, so their licences
+	# are too.
+	:
+else
+	for d in "$STAGE"/usr/share/licenses/*; do
+		[ -d "$d" ] || continue
+		n=${d##*/}
+		case $n in SOURCES|netbsd|musl-fts|linux-pam|llvm-rt|elftoolchain) continue ;; esac
+		xpkg info "$n" >/dev/null 2>&1 || rm -rf "$d"
+	done
+fi
 rm -rf "$STAGE/var/cache/xpkg" "$STAGE/var/lib/xpkg/lock"
 rm -f "$STAGE/etc/flx-desktop"
 
