@@ -20,7 +20,9 @@
 # The medium is labelled FREELINX_LIVE because flxupgrade finds it by that.
 #
 # Environment:
-#   DESK       the FreeLinX-desk checkout        (default: ../Desktop-test)
+#   DESK       the tree this image is built from (default: the checkout
+#             above base: it holds src/, kernel/, iso/, firmware-*.tar.xz and
+#             check-nognu.sh, plus the built stack under stack/)
 #   KERNEL     the kernel image                  (default: $DESK/kernel/bzImage)
 #   LIMINE_DIR Limine binaries                   (default: $DESK/iso/limine)
 #   OUT        the ISO to write    (default: out/freelinx-base-x86_64.iso)
@@ -30,7 +32,7 @@ set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
-DESK=${DESK:-$ROOT/Desktop-test}
+DESK=${DESK:-$ROOT}
 KERNEL=${KERNEL:-$DESK/kernel/bzImage}
 LIMINE_DIR=${LIMINE_DIR:-$DESK/iso/limine}
 OUT=${OUT:-$HERE/out/freelinx-base-x86_64.iso}

@@ -149,9 +149,12 @@ stop
 
 echo '== boot the disk, medium removed =='
 vm -boot c
-wait_for 'FLX_SYS persistent system engaged' 180 && pass=$((pass + 1)) &&
-	echo '  ok   FLX_SYS engaged at boot' ||
-	{ fail=$((fail + 1)); echo '  FAIL FLX_SYS engaged at boot'; }
+# /init's own messages go to /dev/console, which is the screen and not this
+# serial line, so the boot is waited for on what this port does carry: the
+# login prompt flxconsole puts on ttyS0 once runsvdir is up.
+wait_for 'login:' 240 && pass=$((pass + 1)) &&
+	echo '  ok   the installed system reaches a login prompt' ||
+	{ fail=$((fail + 1)); echo '  FAIL the installed system reaches a login prompt'; }
 sleep 15
 # An installed system must ask: a shell here would make the root password
 # that setup-passwd just set mean nothing.
@@ -163,7 +166,18 @@ check "alice's shell is mksh" "$out" 'sh=-/bin/mksh'
 check 'alice is in wheel' "$out" '(wheel)'
 check 'the hostname is xbox' "$out" 'xbox'
 check 'the time zone is Asia/Baku' "$out" 'Asia/Baku'
-out=$(serial login root r00tpw 'echo "who=$(id -un)"; ls /var/service; tail -2 /var/log/sshd.log; cat /etc/flx-disk; mount | grep -c flx_sys; cat /sys/class/vtconsole/vtcon1/name; grep -c "^live:" /etc/passwd')
+# The seven trees setup-disk seeded must be mount points, and every one of them
+# must come off the same partition.  A system that boots and logs in with /etc
+# still in RAM passes every other check here and loses everything it was told to
+# keep, which is the whole bug this line exists for.
+#
+# "trees""-ok" and "NOT""-MOUNTED" are split because the console echoes the
+# command back: a needle spelled out in the command would find itself there and
+# pass whether or not the mount happened.
+out=$(serial login root r00tpw 'for d in usr etc var root bin sbin lib; do grep -q " /$d " /proc/mounts || echo "NOT""-MOUNTED $d"; done; echo "trees""-ok $(awk "\$2==\"/etc\"{print \$1}" /proc/mounts)"; echo "who=$(id -un)"; ls /var/service; tail -2 /var/log/sshd.log; cat /etc/flx-disk; cat /sys/class/vtconsole/vtcon1/name; grep -c "^live:" /etc/passwd; echo persisted > /etc/flx-test-marker; cat /etc/flx-test-marker')
+check 'the seven system trees are mount points' "$out" 'trees-ok'
+case $out in *NOT-MOUNTED*) fail=$((fail + 1)); echo '  FAIL a system tree was left in RAM' ;; *) pass=$((pass + 1)); echo '  ok   no system tree was left in RAM' ;; esac
+check '/etc is on the pinned system partition' "$out" 'trees-ok /dev/vda3'
 check 'root can log in' "$out" 'who=root'
 check 'sshd is a service' "$out" 'sshd'
 check 'sshd is listening' "$out" 'Server listening on'
@@ -174,10 +188,11 @@ stop
 
 echo '== reboot: what was written stays =='
 vm -boot c
-wait_for 'FLX_SYS persistent system engaged' 180
+wait_for 'login:' 240
 sleep 15
-out=$(serial login alice al1cepw 'ls /home/alice/kept && echo kept-ok')
-check "alice's file survived the reboot" "$out" 'kept-ok'
+out=$(serial login alice al1cepw 'ls /home/alice/kept && echo home-kept; cat /etc/flx-test-marker')
+check "alice's file in FLX_HOME survived the reboot" "$out" 'home-kept'
+check 'a file written to /etc survived the reboot' "$out" 'persisted'
 stop
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

@@ -7,9 +7,9 @@
 #   sh scripts/mkrootfs.sh -o STAGE
 #
 # Base is built from the same tree the desktop release is built from
-# (FreeLinX-desk: src/rootfs + kernel/bzImage + the stack packages), because
-# that tree is the one that is kept current and passes check-nognu.  The old
-# src/rootfs is not: Linux 6.6, GCC-built tools, GNU ncurses linked in.
+# (src/rootfs + kernel/bzImage + the stack packages), because that tree is the
+# one that is kept current and passes check-nognu.  The old src/rootfs is not:
+# Linux 6.6, GCC-built tools, GNU ncurses linked in.
 #
 # The desktop is taken out by package, not by search:
 #
@@ -23,12 +23,13 @@
 #      check-nognu finds GNU code in it
 #
 # Environment:
-#   DESK      the FreeLinX-desk checkout   (default: ../Desktop-test)
+#   DESK      the tree this rootfs is built from   (default: the checkout
+#            above base -- src/, stack/, check-nognu.sh)
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-DESK=${DESK:-$ROOT/Desktop-test}
+DESK=${DESK:-$ROOT}
 
 STAGE=
 while [ $# -gt 0 ]; do
@@ -49,8 +50,8 @@ XPKG=$DESK/stack/work/sysroot/usr/bin/xpkg
 MUSL_RUN=$DESK/stack/work/bin/musl-run
 CHECK_NOGNU=$DESK/check-nognu.sh
 
-[ -d "$SRC/usr/bin" ] || die "no desktop rootfs at $SRC"
-[ -x "$XPKG" ] || die "no host xpkg at $XPKG (build the desktop stack first)"
+[ -d "$SRC/usr/bin" ] || die "no rootfs at $SRC (DESK=$DESK must hold src/rootfs)"
+[ -x "$XPKG" ] || die "no host xpkg at $XPKG (build the stack under $DESK/stack first)"
 [ -x "$MUSL_RUN" ] || die "no musl-run at $MUSL_RUN"
 [ -f "$CHECK_NOGNU" ] || die "no check-nognu.sh at $CHECK_NOGNU"
 ls "$PKGS"/*.xpkg >/dev/null 2>&1 || die "no packages in $PKGS"
@@ -122,8 +123,8 @@ mkdir -p "$STAGE"
 # the files are taken as they are.  The programs base cannot boot without are
 # checked by name instead, further down, because `xpkg info` has nothing to ask.
 #
-# Set BASE_FROM_DESKTOP=1 to force the old path, which is what building base from
-# a built Desktop-test tree does.
+# Set BASE_FROM_DESKTOP=1 to force the old path, which is what building base
+# from a src/rootfs that still carries the desktop does.
 if [ "${BASE_FROM_DESKTOP:-0}" = 1 ]; then
 	SRC_IS_BASE=no
 else

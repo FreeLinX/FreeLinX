@@ -15,7 +15,9 @@
 #   2. mkfs.fat -n FLX_BOOT and mkfs.ext4 -L FLX_SYS / -L FLX_HOME make what
 #      their labels say.
 #   3. the UUIDs come out of blkid the way setup-disk reads them, and the
-#      /etc/flx-disk it writes is read back by /init's own pattern.
+#      /etc/flx-disk it writes is read back by /init's own flx_pin.
+#   3b. /init mounts FLX_SYS by that pinned UUID and binds the seven trees
+#      setup-disk seeds onto the image.
 #   4. strip_live (from setup-disk itself) takes the live user out of passwd,
 #      shadow, group and doas.conf, and leaves everything else.
 #   5. the system image: cpio | xz --check=crc32, a check the kernel accepts.
@@ -32,7 +34,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 
 # The tools of the tree base is built from (FreeLinX-desk).
-ROOTFS=${ROOTFS:-$ROOT/Desktop-test/src/rootfs}
+ROOTFS=${ROOTFS:-$ROOT/src/rootfs}
 SETUP_DISK=$HERE/xsetup.d/setup-disk.sh
 LOADER=$ROOTFS/lib/ld-musl-x86_64.so.1
 
@@ -136,13 +138,60 @@ u_home=$(printf '%s\n' "$b_home" | grep -o ' UUID="[^"]*"' | cut -d'"' -f2)
 [ -n "$u_sys" ] && [ -n "$u_home" ] && ok 'both UUIDs are read' || no 'both UUIDs are read'
 [ "$u_sys" != "$u_home" ] && ok 'the two UUIDs differ' || no 'the two UUIDs differ'
 printf 'FLX_SYS_UUID=%s\nFLX_HOME_UUID=%s\n' "$u_sys" "$u_home" >"$TMP/flx-disk"
-# /init's flx_pin, verbatim apart from the file name
-pin() { sed -n "s/^$1=\([0-9A-Fa-f-]*\)\$/\1/p" "$TMP/flx-disk" | head -1; }
-same '/init reads FLX_SYS_UUID back' "$(pin FLX_SYS_UUID)" "$u_sys"
-same '/init reads FLX_HOME_UUID back' "$(pin FLX_HOME_UUID)" "$u_home"
+# /init's flx_pin, read out of /init rather than retyped here: a copy in the
+# test would pass whether or not /init had the function.
+INIT=${INIT:-$ROOTFS/init}
+[ -r "$INIT" ] || { printf 'error: no /init at %s\n' "$INIT" >&2; exit 2; }
+frominit() { sed -n "/^$1() {/,/^}/p" "$INIT"; }
+grep -q '^flx_pin() {' "$INIT" && ok '/init has flx_pin' || no '/init has flx_pin'
+eval "$(frominit flx_pin | sed 's#/etc/flx-disk#'"$TMP/flx-disk"'#')"
+same '/init reads FLX_SYS_UUID back' "$(flx_pin FLX_SYS_UUID)" "$u_sys"
+same '/init reads FLX_HOME_UUID back' "$(flx_pin FLX_HOME_UUID)" "$u_home"
 grep -q 'FLX_SYS_UUID=%s\\nFLX_HOME_UUID=%s' "$SETUP_DISK" &&
 	ok 'setup-disk writes flx-disk in that format' ||
 	no 'setup-disk writes flx-disk in that format'
+
+# --- 3b. /init puts the pinned partition in place --------------------------------
+section '/init mounts FLX_SYS by the pinned UUID and binds the seven trees'
+# These are the trees setup-disk seeds, so these and no others are what /init
+# has to bind: a tree bound that was not seeded is an empty RAM directory
+# wearing a disk's name, and a seeded tree left in RAM is the bug this file
+# exists for.
+grep -q 'for _d in usr etc var root bin sbin lib; do' "$INIT" &&
+	ok '/init binds exactly the trees setup-disk seeds' ||
+	no '/init binds exactly the trees setup-disk seeds'
+grep -q '_sys_uuid=$(flx_pin FLX_SYS_UUID)' "$INIT" &&
+	ok '/init reads the FLX_SYS pin' || no '/init reads the FLX_SYS pin'
+grep -q 'flx_find UUID "\$_sys_uuid"' "$INIT" &&
+	ok '/init matches on UUID, not on the label' ||
+	no '/init matches on UUID, not on the label'
+grep -q 'flx_find LABEL FLX_SYS' "$INIT" &&
+	no '/init must not fall back to the FLX_SYS label' ||
+	ok '/init has no FLX_SYS label fallback'
+grep -q 'mount -o bind "/mnt/flxsys/\$_d" "/\$_d"' "$INIT" &&
+	ok '/init binds each tree with mount -o bind' ||
+	no '/init binds each tree with mount -o bind'
+# /var is already mounted by the FLX_SYS binds, so the FREELINUX_VAR scan has
+# to come after them or it would be a second filesystem claiming one place.
+sysline=$(grep -n 'flx_find UUID "\$_sys_uuid"' "$INIT" | cut -d: -f1)
+varline=$(grep -n 'flx_find LABEL FREELINUX_VAR' "$INIT" | cut -d: -f1)
+[ -n "$sysline" ] && [ -n "$varline" ] && [ "$sysline" -lt "$varline" ] &&
+	ok 'FLX_SYS is mounted before the FREELINUX_VAR scan' ||
+	no 'FLX_SYS is mounted before the FREELINUX_VAR scan'
+# a pinned UUID no partition carries is the case that must be loud: the system
+# then runs from RAM and loses everything, and nothing else would say so.
+grep -q 'no partition carries the FLX_SYS UUID' "$INIT" &&
+	ok '/init says so when the pinned UUID is absent' ||
+	no '/init says so when the pinned UUID is absent'
+grep -q 'did not mount; this system is running from RAM' "$INIT" &&
+	ok '/init says so when the system partition will not mount' ||
+	no '/init says so when the system partition will not mount'
+# FLX_HOME is pinned too, and a medium with no pin has to still find it.
+grep -q '_home_uuid=$(flx_pin FLX_HOME_UUID)' "$INIT" &&
+	ok '/init reads the FLX_HOME pin' || no '/init reads the FLX_HOME pin'
+grep -q 'flx_find LABEL FLX_HOME' "$INIT" &&
+	ok 'a system with no pin still finds FLX_HOME by label' ||
+	no 'a system with no pin still finds FLX_HOME by label'
 
 # --- 4. the live user ------------------------------------------------------------
 section 'strip_live takes the live user out, and nothing else'
