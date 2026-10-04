@@ -114,7 +114,7 @@ if [ -d "$STAGE/lib/modules" ]; then
 		die "lib/modules holds $# kernel versions; it must hold exactly one"
 	fi
 	kv=${1%/}; kv=${kv##*/}
-	say "    modules for $kv"
+	step "    modules for $kv"
 fi
 
 # Modes git cannot carry, as the desktop image build sets them.
