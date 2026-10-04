@@ -20,9 +20,12 @@
 # The medium is labelled FREELINX_LIVE because flxupgrade finds it by that.
 #
 # Environment:
+#   BASE_FROM_DESKTOP=1  build from a built Desktop-test (scripts/mkrootfs.sh)
 #   DESK       the FreeLinX-desk checkout        (default: ../Desktop-test)
-#   KERNEL     the kernel image                  (default: $DESK/kernel/bzImage)
-#   LIMINE_DIR Limine binaries                   (default: $DESK/iso/limine)
+#   KERNEL     the kernel image  (default: the linux package's
+#              /usr/lib/linux/bzImage-*, so it matches /lib/modules; with
+#              BASE_FROM_DESKTOP=1, $DESK/kernel/bzImage)
+#   LIMINE_DIR Limine binaries   (default: $DESK/iso/limine, else /usr/share/limine)
 #   OUT        the ISO to write    (default: out/freelinx-base-x86_64.iso)
 #   SERIAL=1   also put the console on ttyS0 (for tests)
 #   FLX_HW_TARBALL       lib/firmware + lib/modules (default: $DESK/firmware-*.tar.xz)
@@ -31,19 +34,26 @@ set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 DESK=${DESK:-$ROOT/Desktop-test}
-KERNEL=${KERNEL:-$DESK/kernel/bzImage}
-LIMINE_DIR=${LIMINE_DIR:-$DESK/iso/limine}
+[ "${BASE_FROM_DESKTOP:-0}" = 1 ] && KERNEL=${KERNEL:-$DESK/kernel/bzImage}
+if [ -z "${LIMINE_DIR:-}" ]; then
+	LIMINE_DIR=$DESK/iso/limine
+	[ -d "$LIMINE_DIR" ] || LIMINE_DIR=/usr/share/limine
+fi
 OUT=${OUT:-$HERE/out/freelinx-base-x86_64.iso}
 VERSION=$(cat "$HERE/VERSION" 2>/dev/null || echo 1.0.7)
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 step() { printf '==> %s\n' "$*"; }
+say() { printf '%s\n' "$*"; }
 
 for t in xorriso cpio xz; do
 	command -v "$t" >/dev/null 2>&1 || die "missing tool: $t"
 done
-[ -f "$KERNEL" ] || die "kernel not found: $KERNEL"
-for f in limine limine-bios-cd.bin limine-uefi-cd.bin limine-bios.sys BOOTX64.EFI; do
+[ -z "${KERNEL:-}" ] || [ -f "$KERNEL" ] || die "kernel not found: $KERNEL"
+# the limine tool: next to its files (the desk tree), or installed (/usr/bin)
+LIMINE=$LIMINE_DIR/limine
+[ -x "$LIMINE" ] || LIMINE=$(command -v limine 2>/dev/null) || die "no limine tool in $LIMINE_DIR or on PATH"
+for f in limine-bios-cd.bin limine-uefi-cd.bin limine-bios.sys BOOTX64.EFI; do
 	[ -f "$LIMINE_DIR/$f" ] || die "missing $LIMINE_DIR/$f"
 done
 
@@ -54,6 +64,12 @@ ISO=$WORK/iso
 
 # --- the system ----------------------------------------------------------------
 DESK=$DESK sh "$HERE/scripts/mkrootfs.sh" -o "$STAGE"
+
+# The kernel the linux package installed, so it is the one /lib/modules is for.
+if [ -z "${KERNEL:-}" ]; then
+	for k in "$STAGE"/usr/lib/linux/bzImage-*; do [ -f "$k" ] && KERNEL=$k; done
+	[ -n "${KERNEL:-}" ] || die 'no kernel: the linux package has no /usr/lib/linux/bzImage-*'
+fi
 
 mkdir -p "$STAGE/boot"
 cp -f "$KERNEL" "$STAGE/boot/vmlinuz"
@@ -78,10 +94,13 @@ fi
 if [ -n "$HW" ] && [ -f "$HW" ]; then
 	step "hardware blobs from ${HW##*/}"
 	tar -xf "$HW" -C "$STAGE" lib/firmware 2>/dev/null || :
-	if [ -d "$STAGE/lib/modules" ]; then
+	# Only a tarball that has modules replaces them.  firmware-<kver>.tar.xz
+	# from build-firmware.sh has none, and emptying lib/modules for it left an
+	# image whose kernel could load nothing.
+	if tar -tf "$HW" 2>/dev/null | grep -q '^\(\./\)\{0,1\}lib/modules/.'; then
 		rm -rf "${STAGE:?}/lib/modules"
+		tar -xf "$HW" -C "$STAGE" lib/modules
 	fi
-	tar -xf "$HW" -C "$STAGE" lib/modules 2>/dev/null || :
 fi
 # One kernel, one module directory.  The tree this image was built from carried
 # 6.6.21 modules, and pairing those with a 6.6.157 kernel gives an image that
@@ -173,7 +192,7 @@ EOF
 done
 
 # The gate again, on what is actually packed (firmware included).
-sh "$DESK/check-nognu.sh" "$STAGE" >"$WORK/nognu.txt" 2>&1 || {
+sh "$HERE/scripts/check-nognu.sh" "$STAGE" >"$WORK/nognu.txt" 2>&1 || {
 	grep '^FAIL' "$WORK/nognu.txt" >&2
 	die 'GNU artefacts in the image'
 }
@@ -243,6 +262,6 @@ xorriso -as mkisofs -quiet -R -r -J -V FREELINX_LIVE \
 	-boot-info-table -hfsplus -apm-block-size 2048 \
 	--efi-boot boot/limine/limine-uefi-cd.bin -efi-boot-part --efi-boot-image \
 	--protective-msdos-label "$ISO" -o "$OUT"
-"$LIMINE_DIR/limine" bios-install "$OUT" >/dev/null 2>&1
+"$LIMINE" bios-install "$OUT" >/dev/null 2>&1
 (cd "$(dirname "$OUT")" && sha256sum "${OUT##*/}" >"${OUT##*/}.sha256")
 step "done: $OUT ($(du -h "$OUT" | cut -f1))"
