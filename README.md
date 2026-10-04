@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml/badge.svg)](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml)
 
-Current release: **1.1.0** (stable) — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest)
+Current release: **1.2.0** (stable) — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest)
 
 FreeLinX without a desktop: a shell on the console, `xpkg` for everything else.
 Linux 6.18, a NetBSD userland, musl, LLVM-built, no GNU code (`check-nognu`,
@@ -59,10 +59,16 @@ type `yes`. The disk is laid out as:
 
 | Partition | Contents |
 |---|---|
-| ESP (1 GB) | kernel and system image, booted by Limine on BIOS and UEFI |
+| ESP (1 GB) | the kernel and Limine, for BIOS and UEFI |
 | BIOS boot | Limine's BIOS stage |
-| FLX_SYS | persistent `/usr /etc /var /root /bin /sbin /lib` (packages and settings survive reboots) |
-| FLX_HOME | `/home` |
+| FLX_ROOT | `/`: the system, ext4 |
+| FLX_HOME | `/home`, ext4 |
+
+The installed system runs from its disk like any other. The kernel mounts
+`FLX_ROOT` read-only (`root=PARTUUID=…`) with no initramfs, because the
+storage drivers and ext4 are built in. `/init` then checks it with `e2fsck`,
+remounts it read-write and starts the services. `/tmp` is in RAM. The boot
+menu's "Rescue shell" starts no services and gives a root shell.
 
 The installed system starts with the keymap, hostname, network, users, time
 zone and services the steps set, and **asks for a login on every console**.
@@ -86,9 +92,14 @@ Boot the new release's ISO on the installed machine and run:
 flxupgrade
 ```
 
-It rewrites only the boot partition: the kernel, the system image and
-Limine. `/usr`, `/etc`, `/var` and `/home` stay as they are. The first boot
-afterwards refreshes the system files. Then run `doas xpkg upgrade`.
+It replaces the system files on the root partition (`/usr /bin /sbin /lib`,
+`/init`), adds the files in `/etc` that the new release has and yours lacks,
+and puts the new kernel and Limine on the boot partition. Your `/etc`
+settings, users, packages and `/home` stay. Then run `doas xpkg upgrade`.
+
+A system installed with 1.0.13–1.1.x ran from an image in RAM. `flxupgrade`
+converts it: its system partition becomes the root partition, and the RAM
+image is removed from the boot partition.
 
 ## Building
 

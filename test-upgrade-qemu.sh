@@ -147,7 +147,12 @@ oldver=$(serial run 'sed -n "s/^VERSION_ID=//p" /etc/os-release' 10 | tr -d '"\r
 echo "  old: ${oldver:-?}  new: ${newver:-?}"
 # The user step asks for the password once in 1.0.13-1.0.15 and twice, with the
 # doas question first, from 1.1.0; send what the old installer reads.
-ANS=$(printf '%s\n' 1 xbox 1 r00tpw r00tpw 6 Asia/Baku n 1 '' y alice al1cepw y 2 y 2 2 yes | base64 -w0)
+case $oldver in
+1.0.*) USR='y alice al1cepw y' ;;
+*) USR='y alice y al1cepw al1cepw' ;;
+esac
+# shellcheck disable=SC2086  # USR is several answers
+ANS=$(printf '%s\n' 1 xbox 1 r00tpw r00tpw 6 Asia/Baku n 1 '' $USR 2 y 2 2 yes | base64 -w0)
 out=$(serial run "echo $ANS | base64 -d > /root/ans; xsetup < /root/ans > /root/xsetup.log 2>&1" 1200)
 check 'the old release installs' "$out" '__END__0'
 stop
@@ -177,9 +182,11 @@ wait_for 'login:' 300 && pass=$((pass + 1)) && echo '  ok   the upgraded system 
 out=$(serial login alice al1cepw 'echo "who=$(id -un)"; cat /home/alice/kept')
 check 'alice still logs in with her password' "$out" 'who=alice'
 check "alice's file in /home is there" "$out" 'keep-me'
-out=$(serial login root r00tpw 'echo "ver=$(sed -n "s/^VERSION_ID=//p" /etc/os-release | tr -d \")"; echo "host=$(hostname)"')
+out=$(serial login root r00tpw 'echo "ver=$(sed -n "s/^VERSION_ID=//p" /etc/os-release | tr -d \")"; echo "host=$(hostname)"; echo "root""-is $(awk "\$2==\"/\"{print \$3, substr(\$4,1,2)}" /proc/mounts)"; cat /proc/cmdline')
 check "the system is $newver now" "$out" "ver=$newver"
 check 'the hostname is kept' "$out" 'host=xbox'
+check 'it runs from its root partition now' "$out" 'root-is ext4 rw'
+check 'the kernel finds / by PARTUUID' "$out" 'root=PARTUUID='
 out=$(serial login root r00tpw 'cat /etc/flx-upgrade-marker; ls /var/service')
 check 'root still logs in with the root password' "$out" 'marker'
 check 'sshd is still enabled' "$out" 'sshd'

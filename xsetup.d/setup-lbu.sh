@@ -5,7 +5,7 @@
 # setup-lbu - where changes to the system are kept.
 #
 # On an installed system (setup-disk: sys) /usr /etc /var /root /bin /sbin
-# and /lib are on the FLX_SYS partition, so every change is kept and there is
+# and /lib are on the root partition, so every change is kept and there is
 # nothing to choose.  A system running from RAM (setup-disk: none) keeps
 # nothing: FreeLinX has no overlay that saves RAM changes to another disk, and
 # this step says so instead of asking for a disk it would not use.
@@ -21,7 +21,7 @@ MODE=none
 
 case $MODE in
 sys)
-	ok 'the system is on a disk: changes are kept on its FLX_SYS partition'
+	ok 'the system is on a disk: the system runs from its root partition, so every change is kept'
 	;;
 *)
 	warn 'the system runs from RAM: changes are lost when it reboots.'

@@ -21,7 +21,7 @@
 #   3. boot the disk with the medium removed
 #   4. log in as the user and as root, and check what the steps set: hostname,
 #      time zone, the user's groups and shell, sshd running, the UUID pins,
-#      FLX_SYS bound, the framebuffer console
+#      the root partition as /, the framebuffer console
 #   5. reboot, and check a file written in step 4 is still there
 #
 # Needs qemu-system-x86_64 (with KVM for speed) and, for --uefi, OVMF.
@@ -42,7 +42,8 @@ command -v qemu-system-x86_64 >/dev/null || { echo 'qemu-system-x86_64 not found
 
 # short: QEMU refuses unix socket paths of 108 bytes or more
 W=$(mktemp -d /tmp/xsq.XXXXXX)
-trap 'kill "$(cat "$W/pid" 2>/dev/null)" 2>/dev/null; rm -rf "$W"' EXIT
+# KEEP=1 leaves the disk and the logs in $W for a look afterwards.
+trap 'kill "$(cat "$W/pid" 2>/dev/null)" 2>/dev/null; [ "${KEEP:-0}" = 1 ] && echo "kept: $W" || rm -rf "$W"' EXIT
 qemu-img create -f qcow2 "$W/disk.qcow2" 12G >/dev/null
 
 FW=
@@ -188,28 +189,22 @@ check "alice's shell is mksh" "$out" 'sh=-/bin/mksh'
 check 'alice is in wheel' "$out" '(wheel)'
 check 'the hostname is xbox' "$out" 'xbox'
 check 'the time zone is Asia/Baku' "$out" 'Asia/Baku'
-# The seven trees setup-disk seeded must be mount points, and every one of them
-# must come off the same partition.  A system that boots and logs in with /etc
-# still in RAM passes every other check here and loses everything it was told to
-# keep, which is the whole bug this line exists for.
-#
-# "trees""-ok" and "NOT""-MOUNTED" are split because the console echoes the
-# command back: a needle spelled out in the command would find itself there and
-# pass whether or not the mount happened.
+# The installed system runs from its disk: / is the ext4 root partition,
+# mounted read-write after e2fsck, with no initramfs anywhere on the ESP.
+# "root""-is" is split because the console echoes the command back: a needle
+# spelled out in the command would find itself there.
 # The marker is written and then synced: stop(1) is a SIGTERM to QEMU, which
-# QEMU answers by exiting, not by asking the guest to power down.  Without the
-# sync the file is still in the guest's page cache when QEMU goes away and the
-# reboot check below measures when the host flushed its writeback, not whether
-# /etc is on the disk.
-out=$(serial login root r00tpw 'for d in usr etc var root bin sbin lib; do grep -q " /$d " /proc/mounts || echo "NOT""-MOUNTED $d"; done; echo "trees""-ok $(awk "\$2==\"/etc\"{print \$1}" /proc/mounts)"; echo "who=$(id -un)"; ls /var/service; tail -2 /var/log/sshd.log; cat /etc/flx-disk; cat /sys/class/vtconsole/vtcon1/name; grep -c "^live:" /etc/passwd; echo persisted > /etc/flx-test-marker; sync; cat /etc/flx-test-marker; for f in null tty console kmsg; do echo "$f $(ls -l /dev/$f | cut -c1-10)"; done; grep -c "^ Installed'' system:" /etc/motd /etc/issue')
-check 'the seven system trees are mount points' "$out" 'trees-ok'
-case $out in *NOT-MOUNTED*) fail=$((fail + 1)); echo '  FAIL a system tree was left in RAM' ;; *) pass=$((pass + 1)); echo '  ok   no system tree was left in RAM' ;; esac
-check '/etc is on the pinned system partition' "$out" 'trees-ok /dev/vda3'
+# QEMU answers by exiting, not by asking the guest to power down.
+out=$(serial login root r00tpw 'echo "root""-is $(awk "\$2==\"/\"{print \$3, substr(\$4,1,2)}" /proc/mounts)"; echo "tmp""-is $(awk "\$2==\"/tmp\"{print \$3}" /proc/mounts)"; echo "home""-is $(awk "\$2==\"/home\"{print \$1}" /proc/mounts)"; cat /proc/cmdline; echo "who=$(id -un)"; ls /var/service; tail -2 /var/log/sshd.log; cat /etc/flx-disk; grep -c UUID= /etc/fstab; cat /sys/class/vtconsole/vtcon1/name; grep -c "^live:" /etc/passwd; echo persisted > /etc/flx-test-marker; sync; cat /etc/flx-test-marker; for f in null tty console kmsg; do echo "$f $(ls -l /dev/$f | cut -c1-10)"; done; grep -c "^ Installed'' system:" /etc/motd /etc/issue')
+check '/ is the ext4 root partition, read-write' "$out" 'root-is ext4 rw'
+check '/tmp is in RAM' "$out" 'tmp-is tmpfs'
+check '/home is its own partition' "$out" 'home-is /dev/vda4'
+check 'the kernel found / by PARTUUID' "$out" 'root=PARTUUID='
 check 'root can log in' "$out" 'who=root'
 check 'sshd is a service' "$out" 'sshd'
 check 'sshd is listening' "$out" 'Server listening on'
 check 'ntpd is a service' "$out" 'ntpd'
-check 'the partitions are pinned' "$out" 'FLX_SYS_UUID='
+check 'the partitions are pinned' "$out" 'FLX_ROOT_UUID='
 check 'the console is a framebuffer' "$out" 'frame buffer device'
 
 # The modes mdevd hands the nodes the kernel already made.  devtmpfs creates
@@ -224,7 +219,7 @@ check '/dev/tty is 0666' "$out" 'tty crw-rw-rw-'
 check '/dev/console is 0600' "$out" 'console crw-------'
 check '/dev/kmsg is 0660' "$out" 'kmsg crw-rw----'
 
-# The banner is rewritten before the image is packed, so a machine that has
+# The banner is rewritten before the system is copied, so a machine that has
 # just been installed must not go on reading "Live system: nothing is kept
 # until it is installed" - the opposite of the truth, and the first thing on
 # the screen.  Both files, because sshd shows /etc/issue before the password
@@ -245,7 +240,7 @@ vm -boot c
 wait_for 'login:' 240
 sleep 15
 out=$(serial login alice al1cepw 'ls /home/alice/kept && echo home-kept; cat /etc/flx-test-marker')
-check "alice's file in FLX_HOME survived the reboot" "$out" 'home-kept'
+check "alice's file in /home survived the reboot" "$out" 'home-kept'
 check 'a file written to /etc survived the reboot' "$out" 'persisted'
 stop
 

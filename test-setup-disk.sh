@@ -119,10 +119,10 @@ yes
 ')
 contains 'names the EFI system partition' "$out" 'EFI system'
 contains 'names the BIOS boot partition' "$out" 'BIOS boot'
-contains 'names the system partition' "$out" '/usr /etc /var /root /bin /sbin /lib'
+contains 'names the root partition' "$out" 'the system: /'
 contains 'names the home partition' "$out" '/home'
 contains 'the ESP is 1 GiB' "$out" '1024 MiB'
-contains 'labels the system partition FLX_SYS' "$out" 'mkfs.ext4 -F -q -L FLX_SYS'
+contains 'labels the root partition FLX_ROOT' "$out" 'mkfs.ext4 -F -q -L FLX_ROOT'
 contains 'labels the home partition FLX_HOME' "$out" 'mkfs.ext4 -F -q -L FLX_HOME'
 contains 'labels the ESP FLX_BOOT' "$out" 'mkfs.fat -F 32 -n FLX_BOOT'
 ok 'the disk is still untouched' "$(nonzero)" '0'

@@ -7,19 +7,16 @@
 #   sys    install onto a disk.  Erases the disk chosen.
 #   none   run from RAM, touching no disk.  Safe, and the default.
 #
-# What "installed" means is decided by /init, not here.  FreeLinX always runs
-# from its initramfs; an installed system is one whose initramfs is on a disk
-# and carries /etc/flx-installed, with its persistent trees on that disk:
+# An installed FreeLinX runs from its disk like any other system: the kernel
+# mounts the root partition as / and runs /init from it.  The disk is laid out
 #
-#   ESP       FAT32, 1 GiB  kernel, the system image (this running system,
-#                           with everything the earlier steps configured),
-#                           Limine for UEFI and BIOS
+#   ESP       FAT32, 1 GiB  the kernel and Limine (UEFI and BIOS); no initramfs,
+#                           the storage drivers and ext4 are in the kernel
 #   BIOS boot 1 MiB         Limine's BIOS stage
-#   FLX_SYS   ext4          /usr /etc /var /root /bin /sbin /lib, bound over
-#                           the image by /init, so packages and settings stay
+#   FLX_ROOT  ext4          /, the system; the kernel finds it by PARTUUID
 #   FLX_HOME  ext4          /home
 #
-# The two ext4 partitions are pinned by UUID in /etc/flx-disk, so another
+# /etc/flx-disk and /etc/fstab name both ext4 filesystems by UUID, so another
 # disk that happens to carry the same labels is never mounted.
 #
 # none is the default on purpose.  An installer that defaults to a disk is an
@@ -232,7 +229,7 @@ need_cmd mkfs.ext4 'the sysutils/e2fsprogs port'
 
 # Puts back what a real run changed; set as the trap before partitioning.
 cleanup() {
-	for m in /mnt/flx_home /mnt/flx_sys /mnt/flx_boot; do
+	for m in /mnt/flx_home /mnt/flx_root /mnt/flx_boot; do
 		umount "$m" 2>/dev/null || :
 	done
 	rm -f /run/flxinstall-active "$TMPERR" 2>/dev/null || :
@@ -273,18 +270,18 @@ size_of() {
 	printf '%s\n' "$layout" | sed -n "s/^FLX_PART$1_SIZE_MB=//p"
 }
 say ''
-say "  EFI system  $ESP_DEV   $(size_of "$esp_i") MiB  kernel, system image, Limine"
+say "  EFI system  $ESP_DEV   $(size_of "$esp_i") MiB  kernel, Limine"
 say "  BIOS boot   $(partdev "$dev" "$bios_i")   1 MiB  Limine's BIOS stage"
-say "  system      $SYS_DEV   $(size_of "$sys_i") MiB  /usr /etc /var /root /bin /sbin /lib"
+say "  root        $SYS_DEV   $(size_of "$sys_i") MiB  the system: /"
 say "  home        $HOME_DEV   $(size_of "$home_i") MiB  /home"
 say ''
 
 if [ "$DRY" -eq 1 ]; then
 	say "  would run: mkfs.fat -F 32 -n FLX_BOOT $ESP_DEV"
-	say "  would run: mkfs.ext4 -F -q -L FLX_SYS $SYS_DEV"
+	say "  would run: mkfs.ext4 -F -q -L FLX_ROOT $SYS_DEV"
 	say "  would run: mkfs.ext4 -F -q -L FLX_HOME $HOME_DEV"
-	say '  would write: the kernel and this system, as configured, to the ESP'
-	say '  would seed: FLX_SYS from this system, /home onto FLX_HOME'
+	say '  would copy: this system, as configured, onto the root partition'
+	say '  would write: the kernel and Limine to the ESP, /home onto FLX_HOME'
 	say '  would install: Limine for UEFI and BIOS'
 	say ''
 	say "  (dry run: nothing has been written to $dev)"
@@ -302,19 +299,47 @@ done
 info 'formatting'
 mkfs.fat -F 32 -n FLX_BOOT "$ESP_DEV" >/dev/null 2>"$TMPERR" ||
 	die "mkfs.fat failed on $ESP_DEV: $(head -2 "$TMPERR")"
-mkfs.ext4 -F -q -L FLX_SYS "$SYS_DEV" 2>"$TMPERR" ||
+mkfs.ext4 -F -q -L FLX_ROOT "$SYS_DEV" 2>"$TMPERR" ||
 	die "mkfs.ext4 failed on $SYS_DEV: $(head -2 "$TMPERR")"
 mkfs.ext4 -F -q -L FLX_HOME "$HOME_DEV" 2>"$TMPERR" ||
 	die "mkfs.ext4 failed on $HOME_DEV: $(head -2 "$TMPERR")"
-ok 'ESP, FLX_SYS and FLX_HOME formatted'
+ok 'ESP, FLX_ROOT and FLX_HOME formatted'
 
 part_uuid() {
 	blkid "$1" 2>/dev/null | grep -o ' UUID="[^"]*"' | cut -d'"' -f2
 }
-SYS_UUID=$(part_uuid "$SYS_DEV")
+ROOT_UUID=$(part_uuid "$SYS_DEV")
 HOME_UUID=$(part_uuid "$HOME_DEV")
-[ -n "$SYS_UUID" ] && [ -n "$HOME_UUID" ] ||
+[ -n "$ROOT_UUID" ] && [ -n "$HOME_UUID" ] ||
 	die 'could not read the new filesystems'"'"' UUIDs'
+
+# gpt_partuuid DISK INDEX - the GPT unique GUID of a partition, which is what the
+# kernel's root=PARTUUID= matches.  The kernel finds the root itself that way,
+# with no initramfs; the filesystem UUID would need one.  Read from the table:
+# blkid here does not report it.  Header at LBA 1 ("EFI PART"), entry array LBA
+# at byte 72, entry size at byte 84, the GUID 16 bytes into the entry, the first
+# three fields little-endian.
+gpt_partuuid() {
+	_ss=$(cat "/sys/class/block/${1##*/}/queue/logical_block_size" 2>/dev/null || echo 512)
+	# shellcheck disable=SC2046  # od pads (NetBSD: 069), awk makes them plain numbers
+	set -- "$1" "$2" $(dd if="$1" bs="$_ss" skip=1 count=1 2>/dev/null | od -An -v -tu1 |
+		awk '{ for (i = 1; i <= NF; i++) printf "%d ", $i + 0 }')
+	_disk=$1 _idx=$2
+	shift 2
+	[ "${1:-}" = 69 ] && [ "${2:-}" = 70 ] && [ "${3:-}" = 73 ] || return 1
+	_lba=0 _i=7
+	while [ "$_i" -ge 0 ]; do eval "_b=\${$((73 + _i))}"; _lba=$((_lba * 256 + _b)); _i=$((_i - 1)); done
+	_esz=0 _i=3
+	while [ "$_i" -ge 0 ]; do eval "_b=\${$((85 + _i))}"; _esz=$((_esz * 256 + _b)); _i=$((_i - 1)); done
+	_g=$(dd if="$_disk" bs=1 skip=$((_lba * _ss + (_idx - 1) * _esz + 16)) count=16 2>/dev/null |
+		od -An -v -tx1 | tr -d ' \n')
+	[ "${#_g}" -eq 32 ] || return 1
+	printf '%s\n' "$_g" | awk '{ s = $0
+		printf "%s%s%s%s-%s%s-%s%s-%s-%s\n", substr(s,7,2), substr(s,5,2), substr(s,3,2), substr(s,1,2),
+			substr(s,11,2), substr(s,9,2), substr(s,15,2), substr(s,13,2), substr(s,17,4), substr(s,21,12) }'
+}
+ROOT_PARTUUID=$(gpt_partuuid "$dev" "$sys_i") ||
+	die "could not read the partition GUID of $SYS_DEV from $dev's GPT"
 
 # The live user (autologin on the live medium, doas without a password) must
 # not reach the installed system.  strip_live ROOT edits ROOT/etc in place.
@@ -340,10 +365,63 @@ strip_live() {
 		cat "$_e/doas.conf.new" >"$_e/doas.conf"
 		rm -f "$_e/doas.conf.new"
 	fi
+	rm -rf "$1/home/live"
 }
 
-# --- the ESP: kernel, system image, bootloader -------------------------------
+# --- FLX_ROOT: the system ------------------------------------------------------
+# The installed system runs from this partition, the way any installed system
+# does: it is / , mounted by the kernel at boot.  What goes on it is this running
+# system, with everything the earlier steps configured.
 
+# The banner names what this machine keeps, and after this point it is not the
+# medium's sentence any more: "Live system: nothing is kept until it is
+# installed" read on a machine that has just been installed is the opposite of
+# the truth.  Only those two lines change; the logo and the version do not.
+for f in /etc/motd /etc/issue; do
+	[ -f "$f" ] || continue
+	sed -e 's/^ Live system: nothing is kept until it is installed\.$/ Installed system: packages and settings are kept on this disk./' \
+	    -e 's/^ Install to disk: xsetup (as root)\..*$/ Log in as a user in wheel, or as root.  Manuals: man <command>./' \
+	    "$f" >"$f.new" || die "could not rewrite $f for the installed system"
+	grep -q '^ Installed system:' "$f.new" ||
+		die "$f does not carry the line build-base.sh writes; refusing to install with a banner nobody can read"
+	cat "$f.new" >"$f"
+	rm -f "$f.new"
+done
+
+mkdir -p /mnt/flx_root
+mount -t ext4 "$SYS_DEV" /mnt/flx_root || die "cannot mount $SYS_DEV"
+info 'copying the system to the disk'
+# Every top-level directory of this system except the ones the kernel and the
+# boot fill in (proc sys dev run tmp), the mount points (mnt media) and /home,
+# which has its own partition.  -xdev: nothing mounted below is copied.
+for d in /*; do
+	n=${d#/}
+	case $n in
+	proc|sys|dev|run|tmp|mnt|media|home|lost+found) continue ;;
+	esac
+	[ -e "$d" ] || [ -L "$d" ] || continue
+	( cd / && tar -cf - --one-file-system "$n" 2>/dev/null || tar -cf - "$n" ) |
+		( cd /mnt/flx_root && tar -xpf - ) ||
+		die "could not copy /$n to the disk"
+done
+for n in proc sys dev run tmp mnt media home; do mkdir -p "/mnt/flx_root/$n"; done
+chmod 1777 /mnt/flx_root/tmp
+chmod 555 /mnt/flx_root/proc /mnt/flx_root/sys
+strip_live /mnt/flx_root
+: >/mnt/flx_root/etc/flx-installed
+printf 'FLX_ROOT_UUID=%s\nFLX_HOME_UUID=%s\n' "$ROOT_UUID" "$HOME_UUID" >/mnt/flx_root/etc/flx-disk
+cat >/mnt/flx_root/etc/fstab <<EOF
+# Written by xsetup.  / is mounted by the kernel (root=PARTUUID= in limine.conf)
+# and /home by /init, both by these UUIDs.
+UUID=$ROOT_UUID	/	ext4	defaults,noatime	0 1
+UUID=$HOME_UUID	/home	ext4	defaults,noatime	0 2
+tmpfs	/tmp	tmpfs	mode=1777,nosuid,nodev	0 0
+EOF
+# the installer's own bookkeeping is the live session's, not the machine's
+rm -f /mnt/flx_root/etc/xsetup-disk-mode /mnt/flx_root/root/ans
+ok "system copied ($(du -sh /mnt/flx_root 2>/dev/null | cut -f1))"
+
+# --- the ESP: kernel and boot loader -------------------------------------------
 mkdir -p /mnt/flx_boot
 mount -t vfat "$ESP_DEV" /mnt/flx_boot || die "cannot mount $ESP_DEV"
 mkdir -p /mnt/flx_boot/boot /mnt/flx_boot/EFI/BOOT
@@ -356,55 +434,6 @@ done
 cp "$KERNEL_SRC" /mnt/flx_boot/boot/bzImage || die 'could not copy the kernel'
 ok 'kernel installed'
 
-# The system image is this running system, with what the earlier steps wrote
-# into /etc, marked installed.  /home is not in it: it lives on FLX_HOME.
-need_cmd cpio 'cpio'
-need_cmd xz 'xz'
-
-# The banner names what this machine keeps, and after this point it is not the
-# medium's sentence any more: "Live system: nothing is kept until it is
-# installed" read on a machine that has just been installed is the opposite of
-# the truth, and it is the first thing on the screen.  Both files are rewritten
-# here, before the image is packed and before FLX_SYS is seeded, so the console,
-# sshd's pre-login issue and a rescue shell off this image all say the same
-# thing.  Only those two lines change; the logo and the version do not.
-for f in /etc/motd /etc/issue; do
-	[ -f "$f" ] || continue
-	sed -e 's/^ Live system: nothing is kept until it is installed\.$/ Installed system: packages and settings are kept on this disk./' \
-	    -e 's/^ Install to disk: xsetup (as root)\..*$/ Log in as a user in wheel, or as root.  Manuals: man <command>./' \
-	    "$f" >"$f.new" || die "could not rewrite $f for the installed system"
-	grep -q '^ Installed system:' "$f.new" ||
-		die "$f does not carry the line build-base.sh writes; refusing to install with a banner nobody can read"
-	cat "$f.new" >"$f"
-	rm -f "$f.new"
-done
-
-: >/etc/flx-installed
-info 'writing the system image (a few minutes)'
-( cd / && find . -xdev \
-	-not -path './proc/*' -not -path './sys/*' -not -path './dev/*' \
-	-not -path './run/*' -not -path './tmp/*' -not -path './mnt/*' \
-	-not -path './media/*' -not -path './home/*' -print0 |
-	cpio --null -o --format=newc 2>/dev/null |
-	xz -3 -T0 --check=crc32 ) >/mnt/flx_boot/boot/initramfs.img.gz ||
-	die 'could not write the system image to the ESP'
-
-# Appended to the image (the kernel unpacks every archive in turn, the last
-# copy of a file wins): /etc without the live user, and the UUID pins.
-ov=$(mktemp -d "${_scratchdir:-/var/tmp}/xsetup-ov.XXXXXX")
-mkdir -p "$ov/etc"
-for f in passwd shadow group doas.conf; do
-	[ -f "/etc/$f" ] && cp -p "/etc/$f" "$ov/etc/"
-done
-strip_live "$ov"
-printf 'FLX_SYS_UUID=%s\nFLX_HOME_UUID=%s\n' "$SYS_UUID" "$HOME_UUID" >"$ov/etc/flx-disk"
-( cd "$ov" && find ./etc -print0 | cpio --null -o --format=newc 2>/dev/null ) \
-	>>/mnt/flx_boot/boot/initramfs.img.gz || die 'could not finish the system image'
-ok "system image written ($(du -h /mnt/flx_boot/boot/initramfs.img.gz | cut -f1))"
-
-# Kernel modules of a kernel later updated with xpkg go here; empty for now.
-( cd "$ov" && printf '' | cpio -o --format=newc 2>/dev/null ) >/mnt/flx_boot/boot/kmods.cpio
-
 LIMDIR=${LIMINE_DIR:-/usr/share/limine}
 for f in BOOTX64.EFI limine-bios.sys; do
 	[ -f "$LIMDIR/$f" ] || die "$LIMDIR/$f is missing, so there is no bootloader to install"
@@ -414,14 +443,11 @@ cp "$LIMDIR/limine-bios.sys" /mnt/flx_boot/boot/limine-bios.sys
 cp "$LIMDIR/limine-bios.sys" /mnt/flx_boot/limine-bios.sys
 ver=$(sed -n 's/^VERSION_ID="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/os-release 2>/dev/null)
 ver=${ver:-1.0}
-# console=tty0 is last on every line, so /dev/console is the screen.  Every
-# console= gets the kernel's output regardless; the last one is where /init
-# writes, and that is the terminal the operator is sitting at.
-#
-# No quiet loglevel=2: that pair meant "print almost nothing", so an installed
-# system went from the bootloader straight to a login prompt with no boot text
-# in between.  The serial line is kept on both entries so a headless install can
-# still be watched.
+# No initramfs: the disk, virtio, NVMe, SATA and USB storage drivers and ext4
+# are built into the kernel, so it mounts the root partition itself, read-only,
+# and /init checks it and remounts it read-write.  console=tty0 is last so
+# /dev/console is the screen; the serial line is kept for headless machines.
+CMD="root=PARTUUID=$ROOT_PARTUUID rootfstype=ext4 rootwait ro init=/init console=ttyS0,115200 console=tty0"
 cat >/mnt/flx_boot/limine.conf <<EOF
 # Written by xsetup.
 timeout: 3
@@ -434,16 +460,12 @@ interface_branding: FreeLinX $ver
 /FreeLinX $ver
     protocol: linux
     kernel_path: boot():/boot/bzImage
-    module_path: boot():/boot/initramfs.img.gz
-    module_path: boot():/boot/kmods.cpio
-    cmdline: rdinit=/init rootfstype=ramfs console=ttyS0,115200 console=tty0
+    cmdline: $CMD
 
 /Rescue shell
     protocol: linux
     kernel_path: boot():/boot/bzImage
-    module_path: boot():/boot/initramfs.img.gz
-    module_path: boot():/boot/kmods.cpio
-    cmdline: rdinit=/init rootfstype=ramfs flx.rescue=1 console=ttyS0,115200 console=tty0
+    cmdline: $CMD flx.rescue=1
 EOF
 cp /mnt/flx_boot/limine.conf /mnt/flx_boot/boot/limine.conf
 cp /mnt/flx_boot/limine.conf /mnt/flx_boot/EFI/BOOT/limine.conf
@@ -451,21 +473,6 @@ need_cmd limine 'limine'
 limine bios-install "$dev" "$bios_i" >"$TMPERR" 2>&1 ||
 	warn "limine bios-install failed, so the disk boots on UEFI only: $(tail -1 "$TMPERR")"
 ok 'Limine installed for UEFI and BIOS'
-
-# --- FLX_SYS: the persistent system trees -----------------------------------
-
-mkdir -p /mnt/flx_sys
-mount -t ext4 "$SYS_DEV" /mnt/flx_sys || die "cannot mount $SYS_DEV"
-info 'seeding the system partition'
-for d in usr etc var root bin sbin lib; do
-	( cd / && tar -cf - "$d" ) | ( cd /mnt/flx_sys && tar -xpf - ) ||
-		die "could not copy /$d to the system partition"
-done
-strip_live /mnt/flx_sys
-cp "$ov/etc/flx-disk" /mnt/flx_sys/etc/flx-disk
-printf '%s\n' "$ver" >/mnt/flx_sys/.flx-image-version
-rm -rf "$ov"
-ok 'system partition seeded'
 
 # --- FLX_HOME: the users' homes -----------------------------------------------
 

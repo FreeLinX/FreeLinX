@@ -120,15 +120,15 @@ section 'the filesystems carry the labels /init and flxupgrade look for'
 esp=$TMP/esp.img; sys=$TMP/sys.img; home=$TMP/home.img
 truncate -s 64M "$esp"; truncate -s 64M "$sys"; truncate -s 64M "$home"
 tool sbin/mkfs.fat -F 32 -n FLX_BOOT "$esp" >/dev/null 2>&1 || no 'mkfs.fat runs'
-tool sbin/mkfs.ext4 -F -q -L FLX_SYS "$sys" 2>/dev/null || no 'mkfs.ext4 FLX_SYS runs'
+tool sbin/mkfs.ext4 -F -q -L FLX_ROOT "$sys" 2>/dev/null || no 'mkfs.ext4 FLX_ROOT runs'
 tool sbin/mkfs.ext4 -F -q -L FLX_HOME "$home" 2>/dev/null || no 'mkfs.ext4 FLX_HOME runs'
 b_esp=$(tool sbin/blkid "$esp" 2>/dev/null)
 b_sys=$(tool sbin/blkid "$sys" 2>/dev/null)
 b_home=$(tool sbin/blkid "$home" 2>/dev/null)
 case $b_esp in *'LABEL="FLX_BOOT"'*'TYPE="vfat"'*) ok 'the ESP is FAT, labelled FLX_BOOT' ;;
 	*) no 'the ESP is FAT, labelled FLX_BOOT' "$b_esp" ;; esac
-case $b_sys in *'LABEL="FLX_SYS"'*'TYPE="ext4"'*) ok 'FLX_SYS is ext4' ;;
-	*) no 'FLX_SYS is ext4' "$b_sys" ;; esac
+case $b_sys in *'LABEL="FLX_ROOT"'*'TYPE="ext4"'*) ok 'FLX_ROOT is ext4' ;;
+	*) no 'FLX_ROOT is ext4' "$b_sys" ;; esac
 case $b_home in *'LABEL="FLX_HOME"'*'TYPE="ext4"'*) ok 'FLX_HOME is ext4' ;;
 	*) no 'FLX_HOME is ext4' "$b_home" ;; esac
 
@@ -139,7 +139,7 @@ u_sys=$(printf '%s\n' "$b_sys" | grep -o ' UUID="[^"]*"' | cut -d'"' -f2)
 u_home=$(printf '%s\n' "$b_home" | grep -o ' UUID="[^"]*"' | cut -d'"' -f2)
 [ -n "$u_sys" ] && [ -n "$u_home" ] && ok 'both UUIDs are read' || no 'both UUIDs are read'
 [ "$u_sys" != "$u_home" ] && ok 'the two UUIDs differ' || no 'the two UUIDs differ'
-printf 'FLX_SYS_UUID=%s\nFLX_HOME_UUID=%s\n' "$u_sys" "$u_home" >"$TMP/flx-disk"
+printf 'FLX_ROOT_UUID=%s\nFLX_HOME_UUID=%s\n' "$u_sys" "$u_home" >"$TMP/flx-disk"
 # /init's flx_pin, read out of /init rather than retyped here: a copy in the
 # test would pass whether or not /init had the function.
 INIT=${INIT:-$ROOTFS/init}
@@ -147,47 +147,42 @@ INIT=${INIT:-$ROOTFS/init}
 frominit() { sed -n "/^$1() {/,/^}/p" "$INIT"; }
 grep -q '^flx_pin() {' "$INIT" && ok '/init has flx_pin' || no '/init has flx_pin'
 eval "$(frominit flx_pin | sed 's#/etc/flx-disk#'"$TMP/flx-disk"'#')"
-same '/init reads FLX_SYS_UUID back' "$(flx_pin FLX_SYS_UUID)" "$u_sys"
+same '/init reads FLX_ROOT_UUID back' "$(flx_pin FLX_ROOT_UUID)" "$u_sys"
 same '/init reads FLX_HOME_UUID back' "$(flx_pin FLX_HOME_UUID)" "$u_home"
-grep -q 'FLX_SYS_UUID=%s\\nFLX_HOME_UUID=%s' "$SETUP_DISK" &&
+grep -q 'FLX_ROOT_UUID=%s\\nFLX_HOME_UUID=%s' "$SETUP_DISK" &&
 	ok 'setup-disk writes flx-disk in that format' ||
 	no 'setup-disk writes flx-disk in that format'
 
-# --- 3b. /init puts the pinned partition in place --------------------------------
-section '/init mounts FLX_SYS by the pinned UUID and binds the seven trees'
-# These are the trees setup-disk seeds, so these and no others are what /init
-# has to bind: a tree bound that was not seeded is an empty RAM directory
-# wearing a disk's name, and a seeded tree left in RAM is the bug this file
-# exists for.
-grep -q 'for _d in usr etc var root bin sbin lib; do' "$INIT" &&
-	ok '/init binds exactly the trees setup-disk seeds' ||
-	no '/init binds exactly the trees setup-disk seeds'
-grep -q '_sys_uuid=$(flx_pin FLX_SYS_UUID)' "$INIT" &&
-	ok '/init reads the FLX_SYS pin' || no '/init reads the FLX_SYS pin'
-grep -q 'flx_find UUID "\$_sys_uuid"' "$INIT" &&
-	ok '/init matches on UUID, not on the label' ||
-	no '/init matches on UUID, not on the label'
-grep -q 'flx_find LABEL FLX_SYS' "$INIT" &&
-	no '/init must not fall back to the FLX_SYS label' ||
-	ok '/init has no FLX_SYS label fallback'
-grep -q 'mount -o bind "/mnt/flx_sys/\$_d" "/\$_d"' "$INIT" &&
-	ok '/init binds each tree with mount -o bind' ||
-	no '/init binds each tree with mount -o bind'
-# /var is already mounted by the FLX_SYS binds, so the FREELINUX_VAR scan has
-# to come after them or it would be a second filesystem claiming one place.
-sysline=$(grep -n 'flx_find UUID "\$_sys_uuid"' "$INIT" | cut -d: -f1)
-varline=$(grep -n 'flx_find LABEL FREELINUX_VAR' "$INIT" | cut -d: -f1)
-[ -n "$sysline" ] && [ -n "$varline" ] && [ "$sysline" -lt "$varline" ] &&
-	ok 'FLX_SYS is mounted before the FREELINUX_VAR scan' ||
-	no 'FLX_SYS is mounted before the FREELINUX_VAR scan'
-# a pinned UUID no partition carries is the case that must be loud: the system
-# then runs from RAM and loses everything, and nothing else would say so.
-grep -q 'no partition carries the FLX_SYS UUID' "$INIT" &&
-	ok '/init says so when the pinned UUID is absent' ||
-	no '/init says so when the pinned UUID is absent'
-grep -q 'did not mount; this system is running from RAM' "$INIT" &&
-	ok '/init says so when the system partition will not mount' ||
-	no '/init says so when the system partition will not mount'
+# --- 3b. booting from the disk ---------------------------------------------------
+section 'the kernel finds / by PARTUUID, and /init checks it before writing'
+# setup-disk's own gpt_partuuid, run on the disk flxpart wrote in section 1,
+# against the GUID read straight out of the table.
+eval "$(sed -n '/^gpt_partuuid() {/,/^}/p' "$SETUP_DISK")"
+pu=$(gpt_partuuid "$disk" 3)
+case $pu in
+[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-????-????-????-????????????) ok 'gpt_partuuid prints a GUID' ;;
+*) no 'gpt_partuuid prints a GUID' "$pu" ;;
+esac
+if command -v python3 >/dev/null 2>&1; then
+	want=$(python3 -c "import uuid,sys; f=open(sys.argv[1],'rb'); f.seek(1024+2*128+16); print(uuid.UUID(bytes_le=f.read(16)))" "$disk")
+	same 'it is partition 3'"'"'s unique GUID' "$pu" "$want"
+fi
+grep -q 'cmdline: \$CMD$' "$SETUP_DISK" && grep -q 'CMD="root=PARTUUID=\$ROOT_PARTUUID rootfstype=ext4 rootwait ro init=/init' "$SETUP_DISK" &&
+	ok 'limine.conf boots root=PARTUUID=, read-only, init=/init' ||
+	no 'limine.conf boots root=PARTUUID=, read-only, init=/init'
+grep -q 'module_path' "$SETUP_DISK" && no 'the installed system boots with no initramfs' ||
+	ok 'the installed system boots with no initramfs'
+grep -q '/sbin/e2fsck -p "\$ROOT_DEV"' "$INIT" && ok '/init checks the root filesystem' ||
+	no '/init checks the root filesystem'
+# Nothing may write to / before it is read-write: a mkdir on the read-only root
+# under set -e ended /init and panicked the kernel.
+rwline=$(grep -n 'remount,rw' "$INIT" | head -1 | cut -d: -f1)
+wline=$(grep -n 'mkdir -p /var/log' "$INIT" | head -1 | cut -d: -f1)
+[ -n "$rwline" ] && [ -n "$wline" ] && [ "$rwline" -lt "$wline" ] &&
+	ok '/ is remounted read-write before /init writes to it' ||
+	no '/ is remounted read-write before /init writes to it'
+grep -q 'mount -o bind "/mnt/flx_sys' "$INIT" && no '/init no longer binds a RAM system over itself' ||
+	ok '/init no longer binds a RAM system over itself'
 # FLX_HOME is pinned too, and a medium with no pin has to still find it.
 grep -q '_home_uuid=$(flx_pin FLX_HOME_UUID)' "$INIT" &&
 	ok '/init reads the FLX_HOME pin' || no '/init reads the FLX_HOME pin'
@@ -282,25 +277,15 @@ else
 fi
 
 # --- 5. the system image ---------------------------------------------------------
-section 'the system image is xz with a CRC32 check, with a cpio inside'
-img=$TMP/tree
-mkdir -p "$img/etc" "$img/bin"
-printf 'x\n' >"$img/etc/flx-installed"
-printf 'hello\n' >"$img/bin/hello"
-( cd "$img" && find . -print0 | tool bin/cpio --null -o --format=newc 2>/dev/null |
-	tool usr/bin/xz -3 -T0 --check=crc32 ) >"$TMP/initramfs.img.gz"
-check=$(tool usr/bin/xz --robot -lv "$TMP/initramfs.img.gz" 2>/dev/null | awk -F'\t' '$1 == "stream" { print $9 }' | head -1)
-same 'the xz check is CRC32 (the kernel rejects CRC64 and SHA-256)' "$check" CRC32
-list=$(tool usr/bin/xz -dc "$TMP/initramfs.img.gz" | tool bin/cpio -t 2>/dev/null | sort | tr '\n' ' ')
-case $list in *etc/flx-installed*bin/hello*|*bin/hello*etc/flx-installed*) ok 'the cpio holds the tree' ;;
-	*) no 'the cpio holds the tree' "$list" ;; esac
-grep -q "xz -3 -T0 --check=crc32" "$SETUP_DISK" && ok 'setup-disk packs with that command' ||
-	no 'setup-disk packs with that command'
-grep -q "not -path './home/\*'" "$SETUP_DISK" && ok 'the image leaves /home to FLX_HOME' ||
-	no 'the image leaves /home to FLX_HOME'
+section 'the installed system is copied, not packed into a RAM image'
+grep -q 'xz -3' "$SETUP_DISK" && no 'setup-disk packs no system image' ||
+	ok 'setup-disk packs no system image'
+grep -q 'proc|sys|dev|run|tmp|mnt|media|home|lost+found) continue' "$SETUP_DISK" &&
+	ok 'the copy leaves out the kernel'"'"'s trees and /home' ||
+	no 'the copy leaves out the kernel'"'"'s trees and /home'
 
-# --- 6. seeding FLX_SYS -----------------------------------------------------------
-section 'the tar copy that seeds FLX_SYS keeps hard links and setuid'
+# --- 6. copying the system -----------------------------------------------------------
+section 'the tar copy of the system keeps hard links and setuid'
 src=$TMP/src; dst=$TMP/dst
 mkdir -p "$src/bin" "$dst"
 printf 'a\n' >"$src/bin/one"
@@ -320,7 +305,7 @@ grep -q ': >/run/flxinstall-active' "$SETUP_DISK" &&
 	no 'flxautomount is told to step aside before partitioning'
 extract cleanup | grep -q '/run/flxinstall-active' &&
 	ok 'the cleanup removes the flag' || no 'the cleanup removes the flag'
-for m in /mnt/flx_home /mnt/flx_sys /mnt/flx_boot; do
+for m in /mnt/flx_home /mnt/flx_root /mnt/flx_boot; do
 	extract cleanup | grep -q "$m" && ok "the cleanup unmounts $m" || no "the cleanup unmounts $m"
 done
 grep -q 'limine bios-install "$dev" "$bios_i"' "$SETUP_DISK" &&

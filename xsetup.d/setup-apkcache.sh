@@ -5,7 +5,7 @@
 # setup-apkcache - where downloaded package files are kept.
 #
 # xpkg keeps them in /var/cache/xpkg.  On an installed system /var is on the
-# FLX_SYS partition, so the cache is on the disk.  On a system running from
+# root partition, so the cache is on the disk.  On a system running from
 # RAM it is in RAM and goes with the next reboot; `xpkg clean` empties it at
 # any time.
 
@@ -20,7 +20,7 @@ MODE=none
 
 case $MODE in
 sys)
-	ok 'package cache: /var/cache/xpkg, on the FLX_SYS partition'
+	ok 'package cache: /var/cache/xpkg, on the root partition'
 	;;
 *)
 	ok 'package cache: /var/cache/xpkg, in RAM (lost on reboot; xpkg clean empties it)'
