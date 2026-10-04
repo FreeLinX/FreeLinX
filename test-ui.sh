@@ -656,5 +656,24 @@ for _bad in '' 'has space' 'has/slash' 'a!b'; do
 	ok_is "'$_bad' is still refused" "$_good" 'yes'
 done
 
+echo '== hostname_problem: what setup-hostname refuses =='
+# "host." and "host-" used to pass: the pattern meant to catch a trailing dot
+# was .*.* , which is the leading-dot pattern again.
+for _h in xbox ok.example.com a-b.c x1; do
+	if hostname_problem "$_h" >/dev/null; then
+		fail=$((fail+1)); printf '  FAIL %s refused\n' "$_h"
+	else
+		pass=$((pass+1)); printf '  ok   %s accepted\n' "$_h"
+	fi
+done
+_long=$(printf 'a%.0s' $(seq 64))
+for _h in '' host. host- .host -host a..b a.-b a-.b 'a b' a/b "$_long"; do
+	if hostname_problem "$_h" >/dev/null; then
+		pass=$((pass+1)); printf '  ok   %s refused\n' "$(printf '%s' "$_h" | cut -c1-20)"
+	else
+		fail=$((fail+1)); printf '  FAIL %s accepted\n' "$_h"
+	fi
+done
+
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -129,8 +129,37 @@ if [ -n "$wifi" ] && ask_yes "Set up Wi-Fi on $wifi now" y; then
 			*'
 '*) die 'the passphrase may not contain a newline' ;;
 			esac
-			net=$(printf ' ssid=%s\n psk="%s"\n sae_password="%s"\n key_mgmt=WPA-PSK WPA-PSK-SHA256 SAE\n ieee80211w=1\n' \
-				"$hex" "$psk" "$psk")
+			# wpa_supplicant's psk="..." has no escapes, so a passphrase
+			# with a " in it wrote a file it could not read and WiFi never
+			# came up.  The PSK goes in as the 64 hex digits wpa_passphrase
+			# derives (the passphrase on its stdin, never in argv); WPA3's
+			# sae_password needs the text itself, so it is only written
+			# when the text can be quoted.
+			pskhex=
+			if command -v wpa_passphrase >/dev/null 2>&1; then
+				pskhex=$(printf '%s\n' "$psk" | wpa_passphrase "$ssid" 2>/dev/null |
+					sed -n 's/^[[:space:]]*psk=\([0-9a-f]\{64\}\)$/\1/p')
+			fi
+			case $psk in
+			*'"'*|*'\'*) sae= ;;
+			*) sae=$(printf ' sae_password="%s"\n' "$psk") ;;
+			esac
+			if [ -n "$pskhex" ]; then
+				pskline=" psk=$pskhex"
+			else
+				case $psk in
+				*'"'*|*'\'*) die 'without wpa_passphrase, a passphrase cannot contain " or \' ;;
+				esac
+				pskline=" psk=\"$psk\""
+			fi
+			if [ -n "$sae" ]; then
+				net=$(printf ' ssid=%s\n%s\n%s\n key_mgmt=WPA-PSK WPA-PSK-SHA256 SAE\n ieee80211w=1\n' \
+					"$hex" "$pskline" "$sae")
+			else
+				net=$(printf ' ssid=%s\n%s\n key_mgmt=WPA-PSK WPA-PSK-SHA256\n ieee80211w=1\n' \
+					"$hex" "$pskline")
+			fi
+			pskhex= sae= pskline=
 		else
 			net=$(printf ' ssid=%s\n key_mgmt=NONE\n' "$hex")
 		fi

@@ -1,0 +1,36 @@
+# The suites that need no VM and no build: xsetup's conversation, the disk
+# step's plan and what an install does to bytes (with the src rootfs's own
+# tools), the banner, and shellcheck.  The QEMU install test needs KVM and a
+# built ISO, so it is run before every release instead (RELEASE.md).
+name: tests
+on: [push, pull_request]
+jobs:
+  base:
+    # 22.04: unprivileged user namespaces (unshare -r) are allowed there;
+    # 24.04's AppArmor default refuses them, and two suites need them.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: FreeLinX-base
+      - uses: actions/checkout@v4
+        with:
+          repository: FreeLinX/src
+          path: src
+      - name: tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+      - name: shellcheck
+        working-directory: FreeLinX-base
+        run: shellcheck -s sh -S error xsetup xsetup.d/*.sh lib/*.sh build-base.sh scripts/*.sh test-*.sh
+      - name: test-ui
+        working-directory: FreeLinX-base
+        run: sh test-ui.sh
+      - name: test-setup-disk
+        working-directory: FreeLinX-base
+        run: sh test-setup-disk.sh
+      - name: test-destructive
+        working-directory: FreeLinX-base
+        run: PATH=$PATH:/usr/sbin:/sbin sh test-destructive.sh
+      - name: test-banner
+        working-directory: FreeLinX-base
+        run: sh test-banner.sh

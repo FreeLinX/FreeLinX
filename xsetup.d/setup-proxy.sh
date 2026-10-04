@@ -55,7 +55,7 @@ fi
 port=$(ask 'Proxy port' '8080')
 
 user=$(ask 'Proxy user (blank if none)' '')
-pass=$(ask 'Proxy password (blank if none)' '')
+pass=$(ask_secret 'Proxy password (blank if none; nothing is shown)')
 
 case $host in
 *://*) url=$host ;;
@@ -63,7 +63,9 @@ case $host in
 esac
 
 if [ -n "$port" ]; then
-	case $url in
+	# Only the host part can carry a port: the scheme's "http:" always has
+	# a colon, which is why this used to never add the port at all.
+	case ${url#*://} in
 	*:*) : ;;
 	*)  url=$url:$port ;;
 	esac

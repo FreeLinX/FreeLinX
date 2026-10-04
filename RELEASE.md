@@ -15,6 +15,7 @@ sh test-ui.sh && sh test-setup-disk.sh && sh test-destructive.sh
 SERIAL=1 OUT=out/freelinx-base-serial.iso sh build-base.sh
 sh test-xsetup-qemu.sh
 sh test-xsetup-qemu.sh --uefi
+sh test-upgrade-qemu.sh PREVIOUS.iso        # the last release's ISO
 ```
 
 `test-xsetup-qemu.sh` boots the serial ISO and answers all 13 xsetup steps. It

@@ -148,11 +148,16 @@ until serial ping 2>/dev/null | grep -q 'ping-ok'; do
 done
 sleep 10
 
+echo '== the live system =='
+out=$(serial run 'fastfetch --pipe true 2>&1 | head -8' 30)
+check 'fastfetch shows the FreeLinX logo' "$out" '|_|  |_|  \___|\___|_____|'
+check 'fastfetch names the system' "$out" 'OS: FreeLinX'
+
 echo '== xsetup, all 13 steps =='
 # keymap us, hostname, eth0 dhcp, root password twice, region 6 (Asia) and
 # its zone typed, no proxy, ntpd, the default repository, a user with a
 # password and doas, openssh enabled, install (sys) to /dev/vda, yes.
-ANS=$(printf '%s\n' 1 xbox 1 r00tpw r00tpw 6 Asia/Baku n 1 '' y alice al1cepw y 2 y 2 2 yes | base64 -w0)
+ANS=$(printf '%s\n' 1 xbox 1 r00tpw r00tpw 6 Asia/Baku n 1 '' y alice y al1cepw al1cepw 2 y 2 2 yes | base64 -w0)
 out=$(serial run "echo $ANS | base64 -d > /root/ans; xsetup < /root/ans > /root/xsetup.log 2>&1" 1200)
 check 'xsetup finished' "$out" '__END__0'
 log=$(serial run "sed 's/\\x1b\\[[0-9;]*m//g' /root/xsetup.log | grep -E '^  ok|error' | tr -s ' '" 20)

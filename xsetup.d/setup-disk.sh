@@ -167,7 +167,7 @@ dev=$(choose 'Which disk' none 'leave it alone' \
 # Anything mounted out of this device stops the install.  Silently
 # partitioning a live system is how an upgrade destroys itself.
 if command -v findmnt >/dev/null 2>&1; then
-	mounted=$(findmnt -rno SOURCE 2>/dev/null | grep -c "^$dev[0-9p]*$" || true)
+	mounted=$(findmnt -rno SOURCE 2>/dev/null | grep -c "^${dev}[0-9p]*$" || true)
 	if [ "${mounted:-0}" -gt 0 ]; then
 		die "$dev has ${mounted} filesystem(s) mounted. Unmount them, or pick another disk.
      Nothing was changed."
@@ -230,11 +230,22 @@ esp_mb=1024
 need_cmd mkfs.fat 'the sysutils/dosfstools port'
 need_cmd mkfs.ext4 'the sysutils/e2fsprogs port'
 
+# Puts back what a real run changed; set as the trap before partitioning.
+cleanup() {
+	for m in /mnt/flx_home /mnt/flx_sys /mnt/flx_boot; do
+		umount "$m" 2>/dev/null || :
+	done
+	rm -f /run/flxinstall-active "$TMPERR" 2>/dev/null || :
+}
+
 if [ "$DRY" -eq 1 ]; then
 	layout=$(flxpart --esp-size "$esp_mb" --flx-sys-size "$sys_mb" \
 		--create-standard --dry-run "$dev") ||
 		die "flxpart could not compute a layout for $dev"
 else
+	# Anything from here on that stops the install has to put back what it
+	# changed: the flag below, and whatever is mounted on /mnt.
+	trap cleanup EXIT INT TERM
 	# flxautomount mounts new partitions as they appear; this flag (shared
 	# with the desktop installer, hence the name) makes it step aside.
 	: >/run/flxinstall-active
@@ -287,14 +298,6 @@ while [ ! -b "$ESP_DEV" ] || [ ! -b "$HOME_DEV" ]; do
 	[ "$n" -le 20 ] || die "the partitions of $dev did not appear in /dev"
 	sleep 0.5
 done
-
-cleanup() {
-	for m in /mnt/flx_home /mnt/flx_sys /mnt/flx_boot; do
-		umount "$m" 2>/dev/null || :
-	done
-	rm -f /run/flxinstall-active "$TMPERR" 2>/dev/null || :
-}
-trap cleanup EXIT INT TERM
 
 info 'formatting'
 mkfs.fat -F 32 -n FLX_BOOT "$ESP_DEV" >/dev/null 2>"$TMPERR" ||

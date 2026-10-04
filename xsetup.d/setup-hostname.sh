@@ -22,14 +22,7 @@ name=$(ask 'Hostname' "$DEFAULT")
 
 # An empty label, or one with a slash in it, breaks every resolver that sees
 # it, so it is refused here rather than three steps later.
-case $name in
-*[!A-Za-z0-9.-]*)
-	die "'$name' is not a usable hostname: only letters, digits, dot and dash"
-	;;
-.*|-*|.*.*)
-	die "'$name' is not a usable hostname: it cannot start or end with a dot or dash"
-	;;
-esac
+why=$(hostname_problem "$name") && die "'$name' is not a usable hostname: $why"
 
 info "setting the hostname to $name"
 hostname "$name"

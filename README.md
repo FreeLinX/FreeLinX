@@ -1,6 +1,8 @@
 # FreeLinX base
 
-Current release: **1.0.15** — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest)
+[![tests](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml/badge.svg)](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml)
+
+Current release: **1.1.0** (stable) — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest)
 
 FreeLinX without a desktop: a shell on the console, `xpkg` for everything else.
 Linux 6.18, a NetBSD userland, musl, LLVM-built, no GNU code (`check-nognu`,
@@ -64,6 +66,29 @@ type `yes`. The disk is laid out as:
 
 The installed system starts with the keymap, hostname, network, users, time
 zone and services the steps set, and **asks for a login on every console**.
+
+### After installing
+
+```sh
+passwd                      # change your password (users go through doas)
+doas flxadduser bob         # another user; --admin also allows doas
+doas xpkg install tmux      # packages; doas xpkg upgrade updates them
+```
+
+Only users in `wheel` can use `doas`. `setup-user` asks whether the first user
+should be one, and `flxadduser NAME --admin` makes another.
+
+### Upgrading
+
+Boot the new release's ISO on the installed machine and run:
+
+```sh
+flxupgrade
+```
+
+It rewrites only the boot partition: the kernel, the system image and
+Limine. `/usr`, `/etc`, `/var` and `/home` stay as they are. The first boot
+afterwards refreshes the system files. Then run `doas xpkg upgrade`.
 
 ## Building
 
@@ -152,6 +177,7 @@ sh test-banner.sh           # the console banner
 SERIAL=1 OUT=out/freelinx-base-serial.iso sh build-base.sh
 sh test-xsetup-qemu.sh            # BIOS
 sh test-xsetup-qemu.sh --uefi     # UEFI (OVMF)
+sh test-upgrade-qemu.sh OLD.iso   # install OLD, flxupgrade to the new ISO
 ```
 
 `test-xsetup-qemu.sh` boots the ISO in QEMU/KVM, answers all 13 xsetup steps,
@@ -160,7 +186,14 @@ root. It checks hostname, time zone, groups, shell, sshd, ntpd, the UUID pins,
 FLX_SYS and the console, then reboots and checks that a file written in the
 user's home is still there.
 
-Releasing is described in [RELEASE.md](RELEASE.md).
+`test-upgrade-qemu.sh` installs an older release, leaves files in `/home` and
+`/etc`, upgrades it with `flxupgrade` from the new ISO, and checks that the
+disk boots the new version with both files, both passwords and the hostname
+intact.
+
+The suites that need no VM run on every push
+([GitHub Actions](https://github.com/FreeLinX/FreeLinX-base/actions)), with
+shellcheck. Releasing is described in [RELEASE.md](RELEASE.md).
 
 ## Licence
 

@@ -31,16 +31,13 @@ while :; do
 	fi
 	if [ "${#pw}" -lt 6 ]; then
 		warn 'that is shorter than 6 characters.'
-		if ask_yes 'Use it anyway' n; then
-			break
-		fi
-		continue
+		ask_yes 'Use it anyway' n || continue
 	fi
-	break
+	again=$(ask_secret 'Root password again')
+	[ "$pw" = "$again" ] && break
+	warn 'the two passwords did not match; again'
 done
 
-again=$(ask_secret 'Root password again')
-[ "$pw" = "$again" ] || die 'the two passwords did not match'
 
 info 'setting the root password'
 set_password root "$pw"

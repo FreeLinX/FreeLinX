@@ -52,6 +52,14 @@ if [ "$folded" != "$name" ]; then
 	name=$folded
 fi
 
+# A name that starts with a dash is read as an option by every command it is
+# handed to, and one that starts with a digit is taken for a uid by chown and
+# friends.  32 is what login records and most tools assume.
+case $name in
+-*|[0-9]*) die "'$name' is not a usable username: it has to start with a letter or _" ;;
+esac
+[ "${#name}" -le 32 ] || die "'$name' is not a usable username: 32 characters at most"
+
 if awk -F: -v u="$name" '$1 == u { found = 1 } END { exit !found }' /etc/passwd; then
 	die "the account $name already exists"
 fi
@@ -71,7 +79,14 @@ while grep -q "^[^:]*:[^:]*:$gid:" /etc/group; do gid=$((gid + 1)); done
 ushell=$(cat /etc/flx-shell 2>/dev/null)
 [ -x "${ushell:-/nonexistent}" ] || ushell=/bin/sh
 printf '%s:x:%s:\n' "$name" "$gid" >>/etc/group
-for g in wheel audio video input storage users; do
+# wheel is what doas.conf gives root to (permit persist :wheel), so it is
+# asked, not assumed: a user who was meant to be an ordinary account used to be
+# put in wheel anyway and could become root with their own password.
+admin=no
+ask_yes 'Let this user run commands as root with doas' y && admin=yes
+groups='audio video input storage users'
+[ "$admin" = yes ] && groups="wheel $groups"
+for g in $groups; do
 	grep -q "^$g:" /etc/group || continue
 	awk -F: -v OFS=: -v g="$g" -v u="$name" \
 		'$1 == g { $4 = ($4 == "" ? u : $4 "," u) } { print }' /etc/group >/etc/group.new
@@ -82,7 +97,14 @@ mkdir -p "/home/$name"
 chown "$uid:$gid" "/home/$name"
 chmod 700 "/home/$name"
 
-pw=$(ask_secret "Password for $name (nothing is shown)")
+while :; do
+	pw=$(ask_secret "Password for $name (nothing is shown)")
+	[ -z "$pw" ] && break
+	again=$(ask_secret 'Password again')
+	[ "$pw" = "$again" ] && break
+	warn 'the two passwords did not match; again'
+done
+again=''
 if [ -z "$pw" ]; then
 	warn "$name will have no password, which lets anyone who reaches this"
 	warn 'machine log in as them. flxpasswd sets one, from a root shell:'
@@ -93,7 +115,7 @@ else
 	pw=''
 fi
 
-if ask_yes 'Give this user sudo (as root)' y; then
+if [ "$admin" = yes ]; then
 	# doas is the other option, per the Alpine flow.  Checked first because
 	# it is the one that can work on this image: sudo has no port here.
 	if command -v doas >/dev/null 2>&1; then

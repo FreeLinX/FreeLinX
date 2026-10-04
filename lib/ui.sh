@@ -158,6 +158,29 @@ _shadow_hash() {
 	chmod 600 /etc/shadow
 }
 
+# hostname_problem NAME - print why NAME is not a usable hostname and succeed,
+# or print nothing and fail when it is fine (RFC 1123: letters, digits and
+# dashes in dot-separated labels of 1-63, 253 in all, no label starting or
+# ending with a dash).
+hostname_problem() {
+	case $1 in
+	'') echo 'it is empty' ;;
+	*[!A-Za-z0-9.-]*) echo 'only letters, digits, dot and dash' ;;
+	.*|*.|*..*) echo 'it cannot start or end with a dot, or have two dots in a row' ;;
+	-*|*-|*-.*|*.-*) echo 'no part of it can start or end with a dash' ;;
+	*)
+		if [ ${#1} -gt 253 ]; then
+			echo 'it is longer than 253 characters'
+		elif printf '%s\n' "$1" | tr . '\n' | awk 'length > 63 { f = 1 } END { exit !f }'; then
+			echo 'a part between dots is longer than 63 characters'
+		else
+			return 1
+		fi
+		;;
+	esac
+	return 0
+}
+
 ask_yes() {
 	_prompt=$1
 	_default=${2:-y}
