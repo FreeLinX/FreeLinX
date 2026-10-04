@@ -357,6 +357,25 @@ ok 'kernel installed'
 # into /etc, marked installed.  /home is not in it: it lives on FLX_HOME.
 need_cmd cpio 'cpio'
 need_cmd xz 'xz'
+
+# The banner names what this machine keeps, and after this point it is not the
+# medium's sentence any more: "Live system: nothing is kept until it is
+# installed" read on a machine that has just been installed is the opposite of
+# the truth, and it is the first thing on the screen.  Both files are rewritten
+# here, before the image is packed and before FLX_SYS is seeded, so the console,
+# sshd's pre-login issue and a rescue shell off this image all say the same
+# thing.  Only those two lines change; the logo and the version do not.
+for f in /etc/motd /etc/issue; do
+	[ -f "$f" ] || continue
+	sed -e 's/^ Live system: nothing is kept until it is installed\.$/ Installed system: packages and settings are kept on this disk./' \
+	    -e 's/^ Install to disk: xsetup (as root)\..*$/ Log in as a user in wheel, or as root.  Manuals: man <command>./' \
+	    "$f" >"$f.new" || die "could not rewrite $f for the installed system"
+	grep -q '^ Installed system:' "$f.new" ||
+		die "$f does not carry the line build-base.sh writes; refusing to install with a banner nobody can read"
+	cat "$f.new" >"$f"
+	rm -f "$f.new"
+done
+
 : >/etc/flx-installed
 info 'writing the system image (a few minutes)'
 ( cd / && find . -xdev \

@@ -20,6 +20,8 @@
 #      setup-disk seeds onto the image.
 #   4. strip_live (from setup-disk itself) takes the live user out of passwd,
 #      shadow, group and doas.conf, and leaves everything else.
+#   4b. the /etc/motd and /etc/issue loop setup-disk runs before it writes the
+#      image, so an installed machine does not read that nothing is kept.
 #   5. the system image: cpio | xz --check=crc32, a check the kernel accepts.
 #   6. the tar copy that seeds FLX_SYS keeps hard links and setuid bits.
 #
@@ -210,6 +212,74 @@ same 'shadow keeps root and alice' "$(cut -d: -f1 "$r/etc/shadow" | tr '\n' ' ')
 same 'wheel keeps alice only' "$(grep '^wheel:' "$r/etc/group")" 'wheel:x:10:alice'
 same 'the live group is gone' "$(grep -c '^live:' "$r/etc/group")" 0
 same 'doas keeps the wheel rule only' "$(cat "$r/etc/doas.conf")" 'permit persist :wheel'
+
+# --- 4b. the banner on an installed system -----------------------------------------
+section 'setup-disk rewrites the banner it inherits from the medium'
+# The banner is written by build-base.sh for a machine that keeps nothing, and
+# it is the first thing on the screen of a machine that was just installed.  The
+# loop is run here in a chroot holding nothing but /etc, so the code under test
+# is setup-disk's own loop rather than a copy of it: it names /etc/motd and
+# /etc/issue absolutely, and a chroot is the only way to let it write there.
+CROOT=$TMP/croot
+mkdir -p "$CROOT/etc" "$CROOT/bin"
+for t in sh sed grep cat rm; do
+	[ -x "$ROOTFS/bin/$t" ] || { printf 'error: %s/bin/%s is missing\n' "$ROOTFS" "$t" >&2; exit 2; }
+	cp "$ROOTFS/bin/$t" "$CROOT/bin/$t"
+done
+# the banner as build-base.sh writes it
+for f in motd issue; do
+	{
+		printf ' FreeLinX 1.0.12 base\n'
+		printf '\n'
+		printf ' Live system: nothing is kept until it is installed.\n'
+		printf '\n'
+		printf ' Install to disk: xsetup (as root).  Manuals: man <command>.\n'
+	} >"$CROOT/etc/$f"
+done
+sed -n '/^for f in \/etc\/motd \/etc\/issue; do$/,/^done$/p' "$SETUP_DISK" >"$CROOT/rewrite.sh"
+if [ ! -s "$CROOT/rewrite.sh" ]; then
+	no 'setup-disk has no loop that rewrites /etc/motd and /etc/issue'
+elif ! unshare -r -m true 2>/dev/null; then
+	printf '  (no unshare -r -m: cannot run the rewrite, skipping)\n'
+else
+	printf '#!/bin/sh\ndie() { echo "die: $*" >&2; exit 1; }\n' >"$CROOT/rewrite.sh.2"
+	cat "$CROOT/rewrite.sh" >>"$CROOT/rewrite.sh.2"
+	if out=$(unshare -r -m chroot "$CROOT" /bin/sh /rewrite.sh.2 2>&1); then
+		ok 'the rewrite runs and says nothing'
+	else
+		no 'the rewrite failed' "$out"
+	fi
+	same 'motd says the disk keeps things' \
+		"$(sed -n 's/^\( Installed system:.*\)$/\1/p' "$CROOT/etc/motd")" \
+		' Installed system: packages and settings are kept on this disk.'
+	same 'issue says the same thing' \
+		"$(sed -n 's/^\( Installed system:.*\)$/\1/p' "$CROOT/etc/issue")" \
+		' Installed system: packages and settings are kept on this disk.'
+	case $(cat "$CROOT/etc/motd") in
+	*'Live system:'*) no 'motd still tells an installed system nothing is kept' ;;
+	*) ok 'motd no longer tells an installed system that nothing is kept' ;;
+	esac
+	case $(cat "$CROOT/etc/motd") in
+	*'Install to disk:'*) no 'motd still tells an installed system to install' ;;
+	*) ok 'motd no longer tells an installed system to install' ;;
+	esac
+	ok 'the version line is left alone' \
+		"$(sed -n 's/^\( FreeLinX .* base\)$/\1/p' "$CROOT/etc/motd")" ' FreeLinX 1.0.12 base'
+	[ -f "$CROOT/etc/motd.new" ] && no 'the rewrite leaves motd.new behind' ||
+		ok 'the rewrite leaves no temporary file behind'
+	# and it must refuse rather than install a banner it did not understand
+	printf ' something else entirely\n' >"$CROOT/etc/motd"
+	printf ' something else entirely\n' >"$CROOT/etc/issue"
+	if unshare -r -m chroot "$CROOT" /bin/sh /rewrite.sh.2 >"$TMP/rw.err" 2>&1; then
+		no 'a banner it does not recognise is installed as if it were rewritten'
+	else
+		ok 'a banner it does not recognise stops the install'
+	fi
+	case $(cat "$TMP/rw.err") in
+	*'/etc/motd'*) ok 'and it names the file whose banner it could not read' ;;
+	*) no 'and it does not say which file stopped it' "$(cat "$TMP/rw.err")" ;;
+	esac
+fi
 
 # --- 5. the system image ---------------------------------------------------------
 section 'the system image is xz with a CRC32 check, with a cpio inside'
