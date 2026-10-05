@@ -187,37 +187,17 @@ HOME_URL="https://github.com/FreeLinX"
 SUPPORT_URL="https://github.com/FreeLinX"
 BUG_REPORT_URL="https://github.com/FreeLinX/FreeLinX-base/issues"
 EOF
-# /etc/issue and /etc/motd are written here, not edited.  Both come from the
-# desktop: a Plan 9 Rio banner whose version line reads
-#
-#      FreeLinX 1.0 (Rio Workstation Edition) - Static Musl / Linux 6.6
-#
-# so this used to sed " FreeLinX 1.0.x" and then die unless the result was
-# exactly " FreeLinX $VERSION" - which it never was, and every build stopped
-# here before it made an ISO.  mkrootfs.sh had a second attempt at the same two
-# files, sed-ing a different line the desktop banner also lacks, and then
-# refusing the file for containing the word "desktop", which it did in four
-# other lines.
-#
-# Written out instead, and not trimmed afterwards, because both files are read:
+# /etc/issue and /etc/motd are written here, not edited.  Both are plain
+# text, the way real systems keep them (Debian's /etc/issue is one line,
+# not a picture): a version line, a blank line, then what the session is
+# and what to type.  No ASCII art - it drew differently on every console
+# and read as decoration on the only screen a machine with no desktop has.
 # sshd shows /etc/issue before the password prompt and flxconsole writes
 # /etc/motd to every console it opens, which on base is the only thing on screen
 # between the boot log and the prompt.  Neither rewrites it, so this is the one
 # place the version is stamped; nothing else will put it there later.
-#
-# The logo is artwork rather than text, and it is the widest and tallest thing
-# on the screen and the only graphic on a machine with no desktop, so it is
-# reproduced as it was given rather than tidied: trailing spaces and all.  Each
-# backslash in it is written twice below and comes out once, because this
-# heredoc is unquoted so that $VERSION expands in it.
 for f in etc/motd etc/issue; do
 	cat >"$STAGE/$f" <<EOF
- _____              _     _      __  __
-|  ___| __ ___  ___| |   (_)_ __ \\ \\/ /
-| |_ | '__/ _ \\/ _ \\ |   | | '_ \\ \\  / 
-|  _|| | |  __/  __/ |___| | | | |/  \\ 
-|_|  |_|  \\___|\\___|_____|_|_| |_/_/\\_\\
-
  FreeLinX $VERSION base
 
  Live system: nothing is kept until it is installed.

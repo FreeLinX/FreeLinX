@@ -376,7 +376,7 @@ strip_live() {
 # The banner names what this machine keeps, and after this point it is not the
 # medium's sentence any more: "Live system: nothing is kept until it is
 # installed" read on a machine that has just been installed is the opposite of
-# the truth.  Only those two lines change; the logo and the version do not.
+# the truth.  Only those two lines change; the version line does not.
 for f in /etc/motd /etc/issue; do
 	[ -f "$f" ] || continue
 	sed -e 's/^ Live system: nothing is kept until it is installed\.$/ Installed system: packages and settings are kept on this disk./' \

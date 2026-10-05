@@ -18,9 +18,9 @@
 #   refused to build if the word "desktop" survived in it.  It survived in four
 #   lines, so a fresh clone could not produce an image at all.
 #
-# The logo itself is checked for shape, not compared against a copy kept here:
-# it is released artwork, 1.0.8 through 1.0.11, and it is not this file's to
-# change.
+# The banner itself is plain text, not art: the version line, a blank line,
+# then what the session is and what to type.  What is checked is that no
+# ASCII art crept back in above the version line.
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -94,46 +94,37 @@ else
 	sed 's/^/       /' "$TMP/diff"
 fi
 
-if grep -q '\\\\' "$STAGE/etc/motd" "$STAGE/etc/issue"; then
-	no 'a backslash is doubled, so the logo draws with a double stroke'
-	grep -n '\\\\' "$STAGE/etc/motd" "$STAGE/etc/issue" | sed 's/^/       /'
-else
-	ok 'no doubled backslashes in either file'
-fi
-
-echo '== the logo is still there =='
-# Shape, not a copy.  The logo is artwork and not this file's to change, so what
-# is asked is that it is still artwork: a block of lines above the first blank
-# line, opening with an underscore rule and closing with a backslash one.  A
-# copy of the art kept here would fail the day the art is replaced, which is
-# the one time it should not.
+echo '== the banner is plain text, not art =='
+# No ASCII art: the block above the first blank line is the version line
+# alone, the way real systems keep /etc/issue and /etc/motd.  Artwork here
+# drew differently on every console, so what is asked is that there is
+# none: one line above the blank line, and it is the version line.
 ART=$TMP/art
 awk 'NF==0{exit} {print}' "$STAGE/etc/motd" >"$ART"
 lines=$(wc -l <"$ART")
-if [ "$lines" -ge 4 ]; then
-	ok "the logo is $lines lines of art above the first blank line"
+if [ "$lines" -eq 1 ] && grep -q '^ FreeLinX 9\.9\.9 base$' "$ART"; then
+	ok 'the banner opens with the version line alone, no art above it'
 else
-	no "the logo is $lines lines; there is no art above the banner"
+	no "the banner does not open with the version line alone ($lines lines above the blank line)"
+	sed 's/^/       /' "$ART"
 fi
-if sed -n '1p' "$ART" | grep -q '^ *_\{2,\}'; then
-	ok 'the logo opens with its underscore rule'
+# Without art there is no reason for a backslash anywhere in the file.
+# (This used to allow single backslashes and only refused doubled ones,
+# from when the logo drew with a double stroke on SSH logins in 1.0.11.)
+if grep -q '\\' "$STAGE/etc/motd" "$STAGE/etc/issue"; then
+	no 'a backslash survived in a banner with no art in it'
+	grep -n '\\' "$STAGE/etc/motd" "$STAGE/etc/issue" | sed 's/^/       /'
 else
-	no "the logo does not open with an underscore rule: $(sed -n '1p' "$ART")"
+	ok 'no backslashes in either file'
 fi
-# The last line of the logo ends in the backslash rule: _ then a backslash.
-if sed -n "${lines}p" "$ART" | grep -q '_\\$'; then
-	ok 'the logo closes with its backslash rule'
-else
-	no "the logo does not close with its backslash rule: $(sed -n "${lines}p" "$ART")"
-fi
-# A tab in the art is eight columns wherever it falls, so the rule that ends one
-# line stops lining up with the one below it.  There is no reason for the logo
-# to contain one, and it is the sort of thing that arrives by pasting.
+# A tab in the banner is eight columns wherever it falls, so columns stop
+# lining up.  There is no reason for the banner to contain one, and it is
+# the sort of thing that arrives by pasting.
 if grep -q "$(printf '\t')" "$ART"; then
-	no 'the logo has a tab in it, which will not line up on a terminal'
+	no 'the banner has a tab in it, which will not line up on a terminal'
 	grep -n "$(printf '\t')" "$ART" | sed 's/^/       /'
 else
-	ok 'no tab in the logo'
+	ok 'no tab in the banner'
 fi
 
 echo '== it says how to install =='
