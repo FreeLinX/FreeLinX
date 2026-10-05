@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml/badge.svg)](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml)
 
-Current release: **1.3.1** (stable) — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest) · [documentation](https://freelinx.github.io/FreeLinX/)
+Current release: **1.3.2** (stable) — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest) · [documentation](https://freelinx.github.io/FreeLinX/)
 
 FreeLinX without a desktop: a shell on the console, `xpkg` for everything else.
 Linux 6.18, a NetBSD userland, musl, LLVM-built, no GNU code (`check-nognu`,
