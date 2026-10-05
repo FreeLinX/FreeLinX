@@ -151,7 +151,7 @@ sleep 10
 
 echo '== the live system =='
 out=$(serial run 'fastfetch --pipe true 2>&1 | head -8' 30)
-check 'fastfetch shows the FreeLinX wordmark' "$out" 'FreeLinX'
+check 'fastfetch shows the FreeLinX logo' "$out" '@@##@@@@*@@##%%'
 check 'fastfetch names the system' "$out" 'OS: FreeLinX'
 # The live system runs from the medium (squashfs + a tmpfs overlay), not from a
 # copy in RAM: / is the overlay and a fresh session uses well under 150 MB.
