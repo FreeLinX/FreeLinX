@@ -1,5 +1,11 @@
 # FreeLinX base
 
+Community group Telegram:
+([Telegram](https://t.me/+WXyphBAiBbY4OGI6))
+
+If you want to support the project:
+([Donate](https://buymeacoffee.com/freelinxfoundation))
+
 [![tests](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml/badge.svg)](https://github.com/FreeLinX/FreeLinX-base/actions/workflows/tests.yml)
 
 Current release: **1.3.1** (stable) — [download](https://github.com/FreeLinX/FreeLinX-base/releases/latest) · [documentation](https://freelinx.github.io/FreeLinX/)
