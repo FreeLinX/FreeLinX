@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeLinX base — documentation</title>
+<style>
+body{max-width:46em;margin:0 auto;padding:1em;font-family:monospace;line-height:1.5;color:#111;background:#fff}
+a{color:#004}
+h1{font-size:1.4em;border-bottom:1px solid #111;padding-bottom:.3em}
+h2{font-size:1.1em;margin-top:2em;border-bottom:1px dotted #999;padding-bottom:.2em}
+pre{background:#eee;padding:.7em;overflow-x:auto}
+code{background:#eee;padding:0 .2em}
+pre code{background:none;padding:0}
+table{border-collapse:collapse;margin:1em 0}
+th,td{border:1px solid #999;padding:.3em .6em;text-align:left}
+nav ul{list-style:none;padding:0}
+nav li{display:inline;margin-right:1em}
+footer{margin-top:3em;border-top:1px solid #111;padding-top:.5em;font-size:.9em}
+</style>
+</head>
+<body>
+<h1>FreeLinX base</h1>
+<p>Version <b>1.3.1</b> (stable).
+<a href="https://github.com/FreeLinX/FreeLinX-base/releases/latest">Download</a> ·
+<a href="https://github.com/FreeLinX/FreeLinX">Source</a></p>
+<p>FreeLinX without a desktop: a shell on the console, <code>xpkg</code> for everything else.
+Linux 6.18, a NetBSD userland, musl, LLVM-built, no GNU code.</p>
+<pre>freelinx-base-x86_64.iso  ~290 MB, boots on BIOS and UEFI</pre>
+<nav><ul>
+<li><a href="#contents">Contents</a></li>
+<li><a href="#hardware">Hardware</a></li>
+<li><a href="#live">Live</a></li>
+<li><a href="#install">Install</a></li>
+<li><a href="#disk">Disk</a></li>
+<li><a href="#boot">Boot</a></li>
+<li><a href="#after">After</a></li>
+<li><a href="#desktop">Desktop</a></li>
+<li><a href="#upgrade">Upgrade</a></li>
+<li><a href="#packages">Packages</a></li>
+<li><a href="#services">Services</a></li>
+<li><a href="#build">Build</a></li>
+<li><a href="#nognu">No-GNU</a></li>
+</ul></nav>
+
+<h2 id="contents">What is on it</h2>
+<ul>
+<li><b>System:</b> runit, mdevd, dhcpcd, wpa_supplicant and <code>flxwifi</code>, ntpd, dbus,
+doas, OpenSSH 10.5 (ssh and sshd), curl, git, tmux, htop, nnn, vim (also <code>vi</code>),
+bc, e2fsprogs, dosfstools.</li>
+<li><b>Console:</b> <code>man</code> (mandoc, ~200 NetBSD manual pages), <code>less</code>,
+<code>ip</code> (iproute2), <code>lsof</code>, <code>mksh</code> as the login shell
+(arrow keys, history, Tab). <code>/bin/sh</code> stays the NetBSD sh for scripts.</li>
+<li><b>Compiler:</b> <code>cc</code> (tcc) with the musl and kernel headers.</li>
+<li><b>Installer:</b> <code>xsetup</code> puts the system on a disk;
+<code>flxupgrade</code> upgrades an installed system from a newer ISO.</li>
+</ul>
+<p>No X11, GTK, Mesa or fonts on the image. Everything else comes from the
+package repository (~428 signed packages).</p>
+
+<h2 id="hardware">Real hardware</h2>
+<p>Write the ISO to a USB stick and boot it. BIOS and UEFI both work.
+Secure Boot must be off: the image carries Limine directly, no signed shim.</p>
+<pre>lsblk
+sudo dd if=freelinx-base-x86_64.iso of=/dev/sdX bs=4M conv=fsync</pre>
+<p>Check with <code>lsblk</code> that <code>/dev/sdX</code> is the stick.
+<code>dd</code> erases it.</p>
+<p>The installer looks for real disks only: <code>/dev/sd?</code>,
+<code>/dev/nvme?n?</code>, <code>/dev/vd?</code>, <code>/dev/xvd?</code>,
+<code>/dev/mmcblk?</code>. Partitions are never offered. A disk with anything
+mounted is refused. Nothing is written until you type <code>yes</code>.</p>
+
+<h2 id="live">Live session</h2>
+<p>The system is a squashfs on the medium (<code>boot/root.sfs</code>).
+A small initramfs (<code>flxlive</code> as <code>/init</code> plus a static
+<code>sh</code>) finds the volume <code>FREELINX_LIVE</code>, mounts the squashfs
+read-only, puts a tmpfs over it with overlayfs, and hands over to the
+system's own <code>/init</code>.</p>
+<p>RAM holds what the session changes and the page cache, not a copy of the
+system. It starts in about 60 MB. Changes are kept in RAM, up to 75% of it.
+Large packages such as Firefox need an installed system, or more RAM.</p>
+<p>The live session gives a root shell on the screen (tty1–tty3) and on the
+serial line. The medium stays reachable at <code>/media/flx</code>, where the
+installer and <code>flxupgrade</code> look for it.</p>
+
+<h2 id="install">Install</h2>
+<p>Boot the ISO and run:</p>
+<pre>xsetup</pre>
+<p>Thirteen steps, one question at a time. Each step is recorded in
+<code>/etc/xsetup.state</code>, so an interrupted install carries on where it
+stopped.</p>
+<pre>setup-keymap      setup-hostname    setup-interfaces  setup-passwd
+setup-timezone    setup-proxy       setup-ntp         setup-apkrepos
+setup-user        setup-sshd        setup-disk        setup-lbu
+setup-apkcache</pre>
+<pre>xsetup                  # every step not done yet, in order
+xsetup --list           # the steps
+xsetup --status         # which are done
+xsetup --reset NAME     # forget one step, so it runs again
+xsetup setup-sshd       # run one step on its own</pre>
+<p><code>setup-disk</code> is the only step that writes to a disk.</p>
+
+<h2 id="disk">Disk layout</h2>
+<table>
+<tr><th>Partition</th><th>Contents</th></tr>
+<tr><td>ESP (1 GB, FAT32)</td><td>the kernel and Limine, for BIOS and UEFI</td></tr>
+<tr><td>BIOS boot (1 MB)</td><td>Limine's BIOS stage</td></tr>
+<tr><td>FLX_ROOT (ext4)</td><td><code>/</code>: the system</td></tr>
+<tr><td>FLX_HOME (ext4)</td><td><code>/home</code></td></tr>
+</table>
+<p>The system partition gets a share of the disk, not a fixed size: 30%
+(at least 6 GB, at most 64 GB) on disks of 20 GB and more, 40% (at least
+3 GB) on smaller ones. <code>/home</code> gets the rest. An install needs at
+least 8 GB.</p>
+<p><code>/etc/flx-disk</code> and <code>/etc/fstab</code> name both filesystems
+by UUID, so a stray disk carrying the same labels is never mounted.</p>
+
+<h2 id="boot">Installed boot</h2>
+<p>The kernel mounts <code>FLX_ROOT</code> read-only
+(<code>root=PARTUUID=… rootfstype=ext4 rootwait ro init=/init</code>) with no
+initramfs: storage drivers and ext4 are built in. <code>/init</code> checks it
+with <code>e2fsck</code>, remounts it read-write, mounts <code>/home</code> by
+UUID, and starts the services. <code>/tmp</code> is in RAM.</p>
+<p>The boot menu has two entries: the system, and a rescue shell
+(<code>flx.rescue=1</code>) that starts no services and gives a root shell.</p>
+<p>The installed system asks for a login on every console. The live user is
+removed at install time and is never carried over.</p>
+
+<h2 id="after">After installing</h2>
+<pre>passwd                      # change your password (users go through doas)
+doas flxadduser bob         # another user; --admin also allows doas
+doas xpkg install tmux      # packages; doas xpkg upgrade updates them</pre>
+<p>Only users in <code>wheel</code> can use <code>doas</code>.
+<code>setup-user</code> asks whether the first user should be one.</p>
+<p>Network: wired interfaces take DHCP or a static address via
+<code>/etc/dhcpcd.conf</code>. Wi-Fi SSID and passphrase go to
+<code>/etc/wpa_supplicant/flxwifi.conf</code> (0600, passwords in the clear);
+the <code>flxwifi</code> service connects at boot. SSH host keys are generated
+once per machine at setup time, never shipped in the image.</p>
+
+<h2 id="desktop">A desktop</h2>
+<pre>xpkg install xorg xinit openbox      # pulls in fonts, st and the keymaps
+startx</pre>
+<p>Right-click the desktop for the menu. Without <code>~/.xinitrc</code>,
+<code>startx</code> starts openbox with an <code>st</code> terminal.
+Your own <code>~/.xinitrc</code> should end in
+<code>exec openbox --startup st</code>: a terminal started next to openbox can
+otherwise come up before openbox manages the screen and never show.</p>
+<pre>xpkg install xrandr
+xrandr -s 1920x1080
+xpkg install firefox</pre>
+
+<h2 id="upgrade">Upgrading</h2>
+<p>Boot the new release's ISO on the installed machine and run:</p>
+<pre>flxupgrade
+doas xpkg upgrade</pre>
+<p>It replaces the system files (<code>/usr /bin /sbin /lib</code>,
+<code>/init</code>), adds the <code>/etc</code> files the new release has and
+yours lacks, and puts the new kernel and Limine on the boot partition.
+Your <code>/etc</code> settings, users, packages and <code>/home</code> stay.</p>
+
+<h2 id="packages">Packages</h2>
+<p><code>xpkg install &lt;name&gt;</code> installs from the signed repository
+(~428 packages). The index signature is checked against
+<code>/etc/xpkg/keys/freelinx.pub</code> (Ed25519); each archive is checked by
+sha256. The repository address lives in <code>/etc/xpkg/repos.conf</code> and
+is set by <code>setup-apkrepos</code>.</p>
+
+<h2 id="services">Services</h2>
+<p>FreeLinX uses runit, not OpenRC. Enabling a service is a symlink:</p>
+<pre>ln -sfn /etc/svc/ntpd /var/service/ntpd</pre>
+<p><code>/etc/svc</code> holds the definitions, <code>/var/service</code> is
+what runit runs. <code>setup-ntp</code> and <code>setup-sshd</code> manage
+these links. <code>ntpd</code> is on by default. The console is
+<code>var/service/shell</code>: <code>exec /sbin/flxconsole</code>, a login on
+an installed system, a shell on the live medium.</p>
+
+<h2 id="build">Building</h2>
+<p>The build runs on any x86_64 Linux machine. It needs no root and no built
+desktop.</p>
+<p><b>1. Host tools</b> (Debian/Ubuntu names):</p>
+<pre>sudo apt install git curl python3 openssl xorriso squashfs-tools cpio xz-utils binutils</pre>
+<p><b>2. The sources, next to each other:</b></p>
+<pre>mkdir FreeLinX &amp;&amp; cd FreeLinX
+for r in FreeLinX-base src ports drivers; do
+    git clone https://github.com/FreeLinX/$r.git
+done</pre>
+<p><b>3. The FreeLinX toolchain</b> (clang + LLD + a musl sysroot):</p>
+<pre>curl -LO https://github.com/FreeLinX/toolchain/releases/download/v1.0.0/toolchain.tar.gz
+tar -xzf toolchain.tar.gz           # -&gt; FreeLinX/toolchain/</pre>
+<pre>FreeLinX/
+├── FreeLinX-base/   this repository: the build, the installer, the tests
+├── src/             the root filesystem
+├── ports/           console ports (mandoc, less, mksh, tcc, ...)
+├── drivers/         Limine (bootloader/limine-binary)
+└── toolchain/       clang, lld, the musl sysroot</pre>
+<pre>cd FreeLinX-base
+sh build-base.sh            # -&gt; out/freelinx-base-x86_64.iso (+ .sha256)</pre>
+<p><code>scripts/mkrootfs.sh</code> copies <code>src/rootfs</code>, installs the
+kept packages by name from the signed repository (so the image has a package
+database), adds the console ports and manual pages, and trims what a console
+system does not use. The kernel is the linux package's own, so it matches
+<code>/lib/modules</code>. The medium is a Limine ISO for BIOS and UEFI.</p>
+
+<h2 id="nognu">No GNU</h2>
+<p><code>scripts/check-nognu.sh</code> refuses any rootfs carrying GNU toolchain
+or glibc output. Every ELF file is checked for: a GCC <code>.comment</code>, an
+interpreter other than musl's <code>/lib/ld-musl-x86_64.so.1</code>,
+<code>DT_NEEDED</code> on glibc/GCC runtimes, <code>GLIBC_</code> symbol
+versions, GNU libraries (ncurses, readline, gettext, …), and GNU code linked
+in statically, by fingerprint. Current result: 0 failing.</p>
+
+<footer>
+<p>FreeLinX base documentation. BSD-2-Clause, see LICENSE.
+Bugs: <a href="https://github.com/FreeLinX/FreeLinX/issues">github.com/FreeLinX/FreeLinX/issues</a></p>
+</footer>
+</body>
+</html>
