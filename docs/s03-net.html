@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 3 interfaces — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 3: setup-interfaces</h1>
+<p>Interfaces are found by looking at what the kernel made —
+<code>/sys/class/net/*</code> with a <code>device</code> behind it. No
+guessing names. <code>lo</code> and virtual interfaces are not questions.</p>
+<h2>Wired</h2>
+<p>Each wired interface: dhcp, static, or off. Static takes an address
+(<code>192.168.1.10/24</code>, the <code>/24</code> is added if you omit it),
+an optional gateway and nameserver. Only the step's own block of
+<code>/etc/dhcpcd.conf</code> is rewritten; the rest of the file stays.</p>
+<h2>Wireless</h2>
+<p>The first wireless interface is offered for setup. SSID plus passphrase go
+to <code>/etc/wpa_supplicant/flxwifi.conf</code>, mode 0600, because the file
+holds a password in the clear:</p>
+<ul>
+<li>The SSID is stored as hex — SSIDs are arbitrary bytes, quotes and UTF-8
+included.</li>
+<li>The passphrase never appears on a command line. The 64-hex-digit PSK is
+derived with <code>wpa_passphrase</code> reading from stdin, and WPA3's
+<code>sae_password</code> is written only when the text is quotable.</li>
+<li>8–63 characters, no newline. An open network stores
+<code>key_mgmt=NONE</code>.</li>
+</ul>
+<p>After writing, the <code>flxwifi</code> service is restarted so it connects
+now, not just at boot.</p>
+<hr>
+<p class="nav"><a href="s02-hostname.html">prev</a> | <a href="index.html">home</a> | <a href="s04-passwd.html">next: step 4</a></p>
+</body>
+</html>

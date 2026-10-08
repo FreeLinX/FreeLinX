@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 4 root password — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 4: setup-passwd</h1>
+<p>Sets the root password. Typed blind — echo is off while you type, and only
+echo is restored after, because restoring a saved stty state fails on this
+stty and used to leave the terminal silent.</p>
+<ul>
+<li>Empty is refused. An empty root account is a remote shell for anyone who
+reaches the machine, and pressing return too many times must not create
+one.</li>
+<li>Under 6 characters warns and asks. Type it twice; a mismatch starts
+over.</li>
+</ul>
+<p>The hash is made by <code>flxpasswd</code>, which calls libc's
+<code>crypt(3)</code> — the same code that verifies it at login. The password
+travels on stdin, never in argv where <code>ps</code> could read it. After
+setting, the step reads <code>/etc/shadow</code> back and refuses to continue
+if the field is empty, locked (<code>!</code>) or unusable
+(<code>*</code>). Trust, then verify.</p>
+<hr>
+<p class="nav"><a href="s03-net.html">prev</a> | <a href="index.html">home</a> | <a href="s05-tz.html">next: step 5</a></p>
+</body>
+</html>

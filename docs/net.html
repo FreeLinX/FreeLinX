@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Network — FreeLinX docs</title>
+</head>
+<body>
+<h1>Network</h1>
+<h2>Wired</h2>
+<p>dhcpcd, started by /init. Static addresses and per-interface policy live in
+<code>/etc/dhcpcd.conf</code> in the block xsetup wrote; only that block is
+rewritten on re-runs. <code>denyinterfaces</code> leaves an interface
+alone.</p>
+<h2>Wifi</h2>
+<pre>/etc/wpa_supplicant/flxwifi.conf   # 0600, passwords in the clear</pre>
+<p>Written by step 3, read by the <code>flxwifi</code> service at boot. SSID as
+hex, PSK as 64 hex digits, WPA-PSK + WPA-PSK-SHA256 + SAE where quotable.
+Restart the service to reconnect now instead of at boot.</p>
+<h2>sshd</h2>
+<pre>/etc/ssh/sshd_config:
+PermitRootLogin prohibit-password
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+Subsystem sftp /libexec/sftp-server</pre>
+<p>Root over ssh needs a key, never a password. Privilege separation user
+<code>sshd</code>, locked, shell nologin, home <code>/var/empty</code>. Logs
+to <code>/var/log/sshd.log</code>. Off until step 10 says otherwise.</p>
+<h2>Time</h2>
+<p>ntpd, enabled by default. A wrong clock fails certificate checks, so the
+first sync matters more than the daemon's manners.</p>
+<hr>
+<p class="nav"><a href="after.html">prev</a> | <a href="index.html">home</a> | <a href="users.html">next: users</a></p>
+</body>
+</html>

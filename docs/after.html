@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>After install — FreeLinX docs</title>
+</head>
+<body>
+<h1>After install</h1>
+<p>Reboot, remove the stick, boot the disk. Every console asks for a login now
+— the live shell is gone with the live user.</p>
+<pre>passwd                      # change your password (users go through doas)
+doas flxadduser bob         # another user; --admin also allows doas
+doas xpkg install tmux      # packages; doas xpkg upgrade updates them</pre>
+<h2>First hour checklist</h2>
+<ul>
+<li><code>man man</code> — confirm the manuals work.</li>
+<li><code>ip a</code> — confirm the interface from step 3 came up.</li>
+<li><code>xpkg update &amp;&amp; doas xpkg upgrade</code> — confirm the repo
+from step 8 answers.</li>
+<li><code>date</code> — confirm ntpd is dragging the clock right.</li>
+<li><code>cc --version</code> — tcc answers; try <code>cc hello.c</code>.</li>
+</ul>
+<p>Files you wrote in <code>/home</code> survive reboots — that is the point
+of FLX_HOME being its own partition. Everything under <code>/</code> survives
+too; only <code>/tmp</code> is RAM.</p>
+<hr>
+<p class="nav"><a href="boot.html">prev</a> | <a href="index.html">home</a> | <a href="net.html">next: network</a></p>
+</body>
+</html>

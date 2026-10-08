@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Hardware — FreeLinX docs</title>
+</head>
+<body>
+<h1>Hardware</h1>
+<h2>Boot</h2>
+<ul>
+<li>BIOS and UEFI both work. One ISO, Limine for both.</li>
+<li>Secure Boot must be off. The image carries Limine directly; there is no
+signed shim, so a board enforcing signatures refuses it.</li>
+<li>Serial console works. The kernel line keeps
+<code>console=ttyS0,115200</code> for headless machines, with
+<code>console=tty0</code> last so the screen stays the primary console.</li>
+</ul>
+<h2>Disks</h2>
+<p>The installer looks for real disks only:</p>
+<pre>/dev/sd?  /dev/nvme?n?  /dev/vd?  /dev/xvd?  /dev/mmcblk?</pre>
+<p>Partitions are never offered — partitioning <code>/dev/sda1</code> is not a
+thing anyone means. CD-ROM devices are skipped. A disk with anything mounted
+is refused outright.</p>
+<p>Minimum disk: 8 GB. Below that the installer stops and changes nothing.</p>
+<h2>Firmware</h2>
+<p>Real wifi, GPUs and audio codecs need vendor blobs. They come from the
+<code>linux-firmware</code> package in the image. A build with an empty
+<code>/lib/firmware</code> is refused rather than shipped: a module loads,
+finds no blob, and sits there with the radio off, silently. If your wifi card
+is dark after install, missing firmware is suspect number one.</p>
+<p><code>/lib/modules</code> holds exactly one kernel version — the one the
+image boots. Two versions in there once meant modprobe could load nothing.</p>
+<h2>Keyboard</h2>
+<p>One honest limitation: Linux removed the ioctl that used to re-layout a
+running text console, so the installer records your layout
+(<code>/etc/conf.d/loadkmap.conf</code>, <code>/etc/flx-kbd</code>) but cannot
+apply it to the live console. The console keeps the layout it booted with.</p>
+<hr>
+<p class="nav"><a href="inside.html">prev</a> | <a href="index.html">home</a> | <a href="usb.html">next: USB boot</a></p>
+</body>
+</html>

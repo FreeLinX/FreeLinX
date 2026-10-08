@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 1 keymap — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 1: setup-keymap</h1>
+<p>A numbered menu of 24 layouts: us gb ca ie de at ch es it pt nl be se no dk
+fi pl cz hu ro tr ru gr — plus "no change". Pick one.</p>
+<p>It is recorded in two places:</p>
+<pre>/etc/conf.d/loadkmap.conf   KEYMAP=us
+/etc/flx-kbd                 us</pre>
+<p>The second is the layout a desktop installed later starts X with.</p>
+<p>What it does <b>not</b> do: change the running console. Linux removed the
+ioctl that allowed it, so there is no interface a program can use. The step
+says so plainly instead of pretending. The console keeps the layout it booted
+with; the choice waits for a later system that can use it.</p>
+<hr>
+<p class="nav"><a href="install.html">prev</a> | <a href="index.html">home</a> | <a href="s02-hostname.html">next: step 2</a></p>
+</body>
+</html>

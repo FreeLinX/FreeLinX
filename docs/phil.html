@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Philosophy — FreeLinX docs</title>
+</head>
+<body>
+<h1>Philosophy</h1>
+<p>FreeLinX base is a console system. No desktop ships in the image. You get a
+login prompt, a manual, a C compiler, and a package manager. The rest is your
+decision.</p>
+<h2>Rules it follows</h2>
+<ul>
+<li>Small. The live session starts in about 60 MB of RAM. The ISO is ~290 MB.
+What is not needed is not shipped.</li>
+<li>Plain. Configs are text files. Services are directories with a
+<code>run</code> script. Enabling one is a symlink.</li>
+<li>No GNU. The userland is NetBSD, the C library is musl, the compiler chain
+is LLVM plus tcc. A script refuses the build if GNU code slips in.</li>
+<li>Honest installer. It says what it will do before it does it. The only step
+that writes to a disk asks for the word <code>yes</code> first. The default is
+to write nothing.</li>
+<li>Resumable. Every install step is recorded. Pull the plug mid-install and it
+carries on where it stopped.</li>
+</ul>
+<h2>What it is not</h2>
+<ul>
+<li>Not a desktop distro. X arrives with one <code>xpkg</code> line, when you
+ask for it, not before.</li>
+<li>Not systemd. Init is runit. Service supervision is
+<code>runsvdir</code>, nothing more.</li>
+<li>Not sudo. Privilege escalation is doas, for users in <code>wheel</code>.</li>
+<li>Not forever-running-from-RAM. The installed system runs from its disk like
+any other system. RAM mode exists for trying, not for living.</li>
+</ul>
+<hr>
+<p class="nav"><a href="index.html">home</a> | <a href="inside.html">next: what is on it</a></p>
+</body>
+</html>

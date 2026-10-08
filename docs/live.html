@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Live session — FreeLinX docs</title>
+</head>
+<body>
+<h1>Live session</h1>
+<p>The live system is not unpacked into RAM. The medium carries one squashfs
+(<code>boot/root.sfs</code>, zstd). A ~300 KB initramfs — <code>flxlive</code>
+as <code>/init</code> plus a static <code>sh</code> for when it cannot go
+on — does the rest. It is a C program, not a script, because the userland has
+no switch_root, chroot or losetup.</p>
+<h2>What flxlive does</h2>
+<ol>
+<li>Mounts proc, sys, devtmpfs itself and takes <code>/dev/console</code> from
+devtmpfs, since the initramfs has no console node of its own.</li>
+<li>Scans <code>/sys/class/block</code> (skipping loop and ram) for the ISO
+9660 volume <code>FREELINX_LIVE</code> — primary descriptor at byte 32768,
+<code>CD001</code>, label at offset 40. USB sticks appear a moment after the
+kernel starts, so it retries for 30 seconds. Override with
+<code>flx.medium=LABEL</code> on the kernel line.</li>
+<li>Mounts the medium read-only, attaches <code>boot/root.sfs</code> to a loop
+device (read-only, no autoclear games), mounts the squashfs read-only.</li>
+<li>Mounts a tmpfs sized 75% of RAM (not the default half — installing
+something big like Firefox in the live session needs the room) and mounts the
+overlay: lower = squashfs, upper + work = tmpfs.</li>
+<li>Moves the medium to <code>/newroot/media/flx</code> and /dev along, then
+switch_root: the overlay becomes <code>/</code>, the system's
+<code>/init</code> takes over.</li>
+</ol>
+<p>Anything that fails prints what and starts <code>/bin/sh</code>. RAM ends up
+holding the session's changes plus the page cache — about 60 MB at the start —
+instead of the whole system.</p>
+<p>The medium stays reachable at <code>/media/flx</code>. That is where the
+installer and <code>flxupgrade</code> look for it.</p>
+<hr>
+<p class="nav"><a href="usb.html">prev</a> | <a href="index.html">home</a> | <a href="install.html">next: install</a></p>
+</body>
+</html>

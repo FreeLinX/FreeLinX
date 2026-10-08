@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 7 ntp — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 7: setup-ntp</h1>
+<p>Two choices: ntpd, or nothing. Re-running replaces the old answer instead
+of stacking — the previous link is removed first either way.</p>
+<p>Enabling is one symlink. Definitions live in <code>/etc/svc</code>, runit
+runs what is under <code>/var/service</code>:</p>
+<pre>ln -sfn /etc/svc/ntpd /var/service/ntpd</pre>
+<p>ntpd is also on in the image before you choose. The clock is usually wrong
+on first boot, which fails every certificate check until it is roughly right,
+so keeping time is the default and "nothing" warns you about exactly that.</p>
+<hr>
+<p class="nav"><a href="s06-proxy.html">prev</a> | <a href="index.html">home</a> | <a href="s08-repos.html">next: step 8</a></p>
+</body>
+</html>

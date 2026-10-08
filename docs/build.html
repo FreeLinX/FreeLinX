@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Build — FreeLinX docs</title>
+</head>
+<body>
+<h1>Build</h1>
+<p>Any x86_64 Linux machine. No root. No built desktop needed.</p>
+<h2>Needs</h2>
+<pre>sudo apt install git curl python3 openssl xorriso squashfs-tools cpio xz-utils binutils</pre>
+<pre>mkdir FreeLinX &amp;&amp; cd FreeLinX
+for r in FreeLinX-base src ports drivers; do
+    git clone https://github.com/FreeLinX/$r.git
+done</pre>
+<p>Plus the toolchain release (clang + LLD + musl sysroot) unpacked next to
+them. Everything else is fetched and checked during the build: the ~26 base
+packages from the signed repo (Ed25519 index, sha256 per archive), a host
+xpkg if the machine has none, and one tarball for the file database, by
+recorded hash. Every input can be pointed elsewhere with environment
+variables — a build that only works on the machine it was written on is
+broken.</p>
+<pre>cd FreeLinX-base
+sh build-base.sh            # -&gt; out/freelinx-base-x86_64.iso (+ .sha256)</pre>
+<p>A few minutes, ~150 MB of downloads.</p>
+<h2>What it does</h2>
+<ol>
+<li><code>mkrootfs.sh</code>: copies <code>src/rootfs</code>, installs the
+kept packages by name so the image has a package database, adds the console
+ports and ~200 manual pages with an index, fixes shells (mksh for people,
+NetBSD sh for scripts), wires xsetup in, trims the rest.</li>
+<li>Kernel: the linux package's own <code>bzImage</code>, so it matches
+<code>/lib/modules</code>. One version in the modules dir or the build
+refuses.</li>
+<li>Medium: the system packed as squashfs (zstd), a ~300 KB initramfs (flxlive
++ static sh, xz with CRC32 — what the kernel's decoder accepts), Limine for
+BIOS and UEFI, volume label <code>FREELINX_LIVE</code>, sha256 beside the
+ISO.</li>
+</ol>
+<h2>Gates</h2>
+<p>The build stops when: the source tree has uncommitted changes, flxconsole
+would give an installed system a shell instead of a login, any program needs
+a missing library, any graphical program is left, or check-nognu finds GNU
+code. <code>ALLOW_DIRTY=1</code> is for test builds only.</p>
+<h2>Options</h2>
+<table>
+<tr><th>Variable</th><th>Effect</th></tr>
+<tr><td><code>SERIAL=1</code></td><td>console on ttyS0 too</td></tr>
+<tr><td><code>OUT=path.iso</code></td><td>where the ISO goes</td></tr>
+<tr><td><code>FLX_HW_TARBALL=…</code></td><td>newer firmware than the package carries</td></tr>
+<tr><td><code>BASE_FROM_DESKTOP=1</code></td><td>build from a built desktop tree instead</td></tr>
+</table>
+<hr>
+<p class="nav"><a href="upgrade.html">prev</a> | <a href="index.html">home</a> | <a href="nognu.html">next: no-GNU gate</a></p>
+</body>
+</html>

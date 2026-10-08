@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 5 timezone — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 5: setup-timezone</h1>
+<p>Region first, then city — the 600-zone flat list would be unusable. Regions
+with too many cities ask for the full name typed out. Single zones stored as
+themselves (UCT, Turkey, Singapore and a dozen others) are accepted directly,
+no phantom city menu.</p>
+<p>The zone is a file under <code>/usr/share/zoneinfo</code> (tzdata port),
+and it is installed as a <b>copy</b>, not a symlink:</p>
+<pre>cp /usr/share/zoneinfo/Asia/Baku /etc/localtime
+Asia/Baku &gt; /etc/timezone
+Asia/Baku &gt; /etc/TZ</pre>
+<p>A symlink breaks when the zone database upgrades or the disk is mounted
+elsewhere. <code>/etc/TZ</code> is what FreeLinX reads — profile exports TZ
+from it. Mode 644, saying plainly that it is a copy.</p>
+<hr>
+<p class="nav"><a href="s04-passwd.html">prev</a> | <a href="index.html">home</a> | <a href="s06-proxy.html">next: step 6</a></p>
+</body>
+</html>

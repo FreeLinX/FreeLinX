@@ -1,0 +1,16 @@
+/* FreeLinX docs. Three colors. No frameworks. */
+body{background:#000;color:#c0c0c0;font-family:"Courier New",Courier,monospace;
+  max-width:76ch;margin:0 auto;padding:1em;line-height:1.5}
+a{color:#00cccc}
+a:visited{color:#008888}
+h1,h2,h3{color:#fff}
+pre{background:#111;border:1px solid #333;padding:.7em;overflow-x:auto}
+code{color:#fff}
+table{border-collapse:collapse;margin:1em 0}
+th,td{border:1px solid #555;padding:.3em .7em;text-align:left}
+th{color:#fff}
+hr{border:0;border-top:1px solid #555}
+img{border:1px solid #555}
+.small{font-size:.85em}
+.badges img{border:0;margin-right:1em;vertical-align:middle}
+.nav{margin-top:2em}

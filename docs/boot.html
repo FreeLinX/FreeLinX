@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Installed boot — FreeLinX docs</title>
+</head>
+<body>
+<h1>Installed boot</h1>
+<p>Limine reads <code>limine.conf</code> off the ESP. Three copies exist (root,
+boot copy, EFI copy) so BIOS and UEFI both find one:</p>
+<pre>timeout: 3
+serial: yes
+textmode: yes
+interface_branding: FreeLinX 1.3.1
+
+/FreeLinX 1.3.1
+    protocol: linux
+    kernel_path: boot():/boot/bzImage
+    cmdline: root=PARTUUID=... rootfstype=ext4 rootwait ro init=/init console=ttyS0,115200 console=tty0
+
+/Rescue shell
+    cmdline: ... flx.rescue=1</pre>
+<p><code>textmode: yes</code> hands BIOS a text screen instead of a
+framebuffer, so vgacon has a console whether or not a KMS driver shows up.
+Ignored on UEFI, which has no text mode to hand over.</p>
+<h2>/init</h2>
+<p>The kernel mounts the root read-only itself — storage drivers and ext4 are
+compiled in, no initramfs. Then <code>/init</code>:</p>
+<ol>
+<li>checks the root with <code>e2fsck -p</code>,</li>
+<li>remounts it read-write <b>before</b> writing anything (a mkdir on the
+read-only root once ended /init and panicked the kernel — ordering matters),</li>
+<li>mounts <code>/home</code> by its pinned UUID,</li>
+<li>starts runsvdir, which starts the services.</li>
+</ol>
+<p>Rescue (<code>flx.rescue=1</code>) skips the services and gives a root
+shell. That is also where you go when you forget every password.</p>
+<hr>
+<p class="nav"><a href="disk.html">prev</a> | <a href="index.html">home</a> | <a href="after.html">next: after install</a></p>
+</body>
+</html>

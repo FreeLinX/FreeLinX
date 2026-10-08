@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 11 disk — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 11: setup-disk</h1>
+<p>The only step that writes to a disk. First question: how should the system
+be stored — run from RAM, or install onto a disk. RAM is the default, on
+purpose. An installer that defaults to a disk is an installer that eats
+laptops.</p>
+<h2>Choosing</h2>
+<p>Found disks are listed with sizes and models. You pick one, or leave it
+alone. Mounted filesystems stop the install — partitioning a live system is
+how an upgrade destroys itself. Then the warning, then the word:</p>
+<pre>about to erase /dev/sda, and everything on it
+This erases /dev/sda, type 'yes' to continue</pre>
+<p>Anything but <code>yes</code> exactly, and nothing happens. A dry run mode
+prints every destructive step and does none of them, so the plan can be
+checked before committing.</p>
+<h2>What it writes</h2>
+<p>Partitioning is done by <code>flxpart</code>, four partitions
+(see <a href="disk.html">disk layout</a>). Then:</p>
+<pre>mkfs.fat -F 32 -n FLX_BOOT   # the ESP
+mkfs.ext4 -F -q -L FLX_ROOT   # /
+mkfs.ext4 -F -q -L FLX_HOME   # /home</pre>
+<p>The running system is copied over with tar, minus the kernel's trees (proc
+sys dev run tmp), mount points and /home. Hard links and setuid bits survive
+— the test suite checks both. Then the kernel and Limine go on the ESP, a
+<code>limine.conf</code> with <code>root=PARTUUID=</code> is written three
+times over (root, boot copy, EFI copy), and BIOS is pointed at its partition.
+Homes move to FLX_HOME with owner and 700 fixed per user.</p>
+<h2>Cleanup of the live session</h2>
+<p>The live user must not reach the installed system: <code>strip_live</code>
+takes <code>live</code> out of passwd, shadow and group, drops the passwordless
+doas rule, and deletes <code>/home/live</code>. The banner is rewritten too —
+"nothing is kept until it is installed" read on an installed machine would be
+the opposite of the truth.</p>
+<hr>
+<p class="nav"><a href="s10-sshd.html">prev</a> | <a href="index.html">home</a> | <a href="s12-lbu.html">next: step 12</a></p>
+</body>
+</html>

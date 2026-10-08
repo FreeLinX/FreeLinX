@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 10 sshd — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 10: setup-sshd</h1>
+<p>Two choices: none, or openssh. None removes the link if a previous run put
+it there.</p>
+<p>Enabling warns first, in plain words: anyone who can reach the machine and
+knows an account may log in over the network, so the root password from step 4
+should not be the only thing between them and a shell. Then it asks
+confirmation anyway.</p>
+<p>Host keys are generated once per machine, at setup time:</p>
+<pre>ssh-keygen -q -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ''
+ssh-keygen -q -t rsa -b 3072 -f /etc/ssh/ssh_host_rsa_key -N ''</pre>
+<p>A key baked into an image would be the same key on every machine ever
+installed from it. <code>/etc/ssh</code> is 700, private keys 600. The
+service is the usual symlink, <code>/etc/svc/openssh</code> to
+<code>/var/service/sshd</code>, running <code>sshd -D -e</code> with host keys
+made on first start if missing.</p>
+<hr>
+<p class="nav"><a href="s09-user.html">prev</a> | <a href="index.html">home</a> | <a href="s11-disk.html">next: step 11</a></p>
+</body>
+</html>

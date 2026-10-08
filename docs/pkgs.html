@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Packages — FreeLinX docs</title>
+</head>
+<body>
+<h1>Packages</h1>
+<pre>xpkg install &lt;name&gt;
+xpkg list
+doas xpkg upgrade
+xpkg clean                 # empties /var/cache/xpkg</pre>
+<p>~428 packages in the signed repository. The index signature is Ed25519,
+checked against <code>/etc/xpkg/keys/freelinx.pub</code>; every archive is
+checked by sha256 on top. xpkg refuses a repo whose index it cannot verify, so
+an image without the key installs nothing.</p>
+<p>The address lives in <code>/etc/xpkg/repos.conf</code>, one URL per line,
+highest priority first. The image carries a package database describing what
+is installed, so <code>xpkg upgrade</code> and everything installed later see
+the base as installed instead of stacking a second copy on top.</p>
+<h2>Where packages come from</h2>
+<p>The <code>ports</code> tree builds the console set (mandoc, less, iproute2,
+lsof, mksh, stty, tcc and friends). The desktop stack produces the rest and
+publishes the archives; the base build takes the ones it keeps by name from
+the same signed repo your machine updates from. One repo, both directions.</p>
+<hr>
+<p class="nav"><a href="desktop.html">prev</a> | <a href="index.html">home</a> | <a href="upgrade.html">next: upgrade</a></p>
+</body>
+</html>

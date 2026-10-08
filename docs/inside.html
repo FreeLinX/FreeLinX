@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>What is on it — FreeLinX docs</title>
+</head>
+<body>
+<h1>What is on it</h1>
+<h2>System</h2>
+<ul>
+<li>runit — init and supervision</li>
+<li>mdevd — device nodes in /dev</li>
+<li>dhcpcd — wired addressing, static config from its conf</li>
+<li>wpa_supplicant + flxwifi — wireless, connects at boot</li>
+<li>ntpd — clock, on by default</li>
+<li>dbus — the bus everything expects</li>
+<li>doas — become root, wheel only</li>
+<li>OpenSSH 10.5 — ssh and sshd, daemon off until you enable it</li>
+<li>curl, git — fetch things</li>
+<li>tmux, htop, nnn — live in the terminal</li>
+<li>vim, and <code>vi</code> as a link to it</li>
+<li>bc — the calculator is not a joke, it is how you check partition math</li>
+<li>e2fsprogs, dosfstools — mkfs.ext4 and mkfs.fat, the installer needs both</li>
+</ul>
+<h2>Console</h2>
+<ul>
+<li>mandoc — <code>man</code>, with ~200 NetBSD manual pages and an index</li>
+<li>less — the pager, BSD side of its dual licence</li>
+<li>ip — iproute2</li>
+<li>lsof — what holds what</li>
+<li>mksh — the login shell: arrows, history, Tab. <code>/bin/sh</code> stays
+NetBSD sh, for scripts.</li>
+</ul>
+<h2>Compiler</h2>
+<p><code>cc</code> is tcc, with musl headers, kernel UAPI headers and the
+start files, so <code>cc hello.c</code> works out of the box. No C++ compiler
+ships, so no C++ headers ship either.</p>
+<h2>Kept packages</h2>
+<p>The image is built from these, installed by name from the signed repo:</p>
+<pre>ca-certificates dbus expat flxnet libcxx libedit libelf libffi libmd libnl
+libudev-zero libxml2 linux linux-firmware musl netbsd-curses nnn openssl pcre2
+sqlite toybox tzdata wpa_supplicant xpkg zlib</pre>
+<p>Plus the console ports: <code>mandoc less iproute2 lsof mksh stty</code> and
+tcc, plus <code>musl-dev</code> for the headers.</p>
+<h2>Not on it</h2>
+<p>No X11, no GTK, no Mesa, no fonts. The repo holds ~428 signed packages for
+all of that. See <a href="pkgs.html">packages</a>.</p>
+<hr>
+<p class="nav"><a href="phil.html">prev</a> | <a href="index.html">home</a> | <a href="hw.html">next: hardware</a></p>
+</body>
+</html>

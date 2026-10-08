@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Desktop — FreeLinX docs</title>
+</head>
+<body>
+<h1>Desktop</h1>
+<p>One line when you want it, not before:</p>
+<pre>xpkg install xorg xinit openbox      # pulls in fonts, st and the keymaps
+startx</pre>
+<p>Right-click for the menu: terminal, reconfigure, restart, exit. With no
+<code>~/.xinitrc</code>, startx brings up openbox with an <code>st</code>
+terminal.</p>
+<p>Your own <code>~/.xinitrc</code> should end in:</p>
+<pre>exec openbox --startup st</pre>
+<p>A terminal started next to openbox can come up before openbox manages the
+screen and never show. Ending in exec avoids that race.</p>
+<pre>xpkg install xrandr
+xrandr -s 1920x1080
+xpkg install firefox</pre>
+<p>The console screen size (<code>xres</code>/<code>yres</code>) is the size X
+takes too. Firefox is the biggest thing in the repo — install it on an
+installed system, not in a small live session.</p>
+<hr>
+<p class="nav"><a href="users.html">prev</a> | <a href="index.html">home</a> | <a href="pkgs.html">next: packages</a></p>
+</body>
+</html>

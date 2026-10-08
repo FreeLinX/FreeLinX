@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>USB boot — FreeLinX docs</title>
+</head>
+<body>
+<h1>USB boot</h1>
+<pre>lsblk
+sudo dd if=freelinx-base-x86_64.iso of=/dev/sdX bs=4M conv=fsync</pre>
+<p>Check with <code>lsblk</code> that <code>/dev/sdX</code> is the stick.
+<code>dd</code> erases it. There is no undo.</p>
+<p>Boot the stick. The menu offers the system and a rescue shell. Pick the
+system. You land in a root shell on tty1–tty3 and on serial. Nothing is kept
+until it is installed — that sentence is also the first thing on the screen,
+in <code>/etc/motd</code>.</p>
+<p>From here: <code>xsetup</code>. Thirteen steps, one question at a time. See
+<a href="install.html">install</a>.</p>
+<h2>If it does not boot</h2>
+<ul>
+<li>Black screen on old BIOS hardware: the image hands over a text screen
+(<code>textmode: yes</code>) so vgacon has a console with or without a KMS
+driver. If even that fails, try the serial console.</li>
+<li>"No bootable device" after install: the disk has no system on it yet.
+Install first, then boot the disk without the stick.</li>
+<li>Secure Boot violation: turn Secure Boot off in the firmware setup.</li>
+</ul>
+<hr>
+<p class="nav"><a href="hw.html">prev</a> | <a href="index.html">home</a> | <a href="live.html">next: live session</a></p>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Disk layout — FreeLinX docs</title>
+</head>
+<body>
+<h1>Disk layout</h1>
+<table>
+<tr><th>#</th><th>Type</th><th>Size</th><th>Holds</th></tr>
+<tr><td>1</td><td>ESP, FAT32, FLX_BOOT</td><td>1 GB</td><td>kernel, Limine, UEFI + BIOS</td></tr>
+<tr><td>2</td><td>BIOS boot</td><td>1 MB</td><td>Limine's BIOS stage</td></tr>
+<tr><td>3</td><td>ext4, FLX_ROOT</td><td>share, see below</td><td><code>/</code></td></tr>
+<tr><td>4</td><td>ext4, FLX_HOME</td><td>the rest</td><td><code>/home</code></td></tr>
+</table>
+<p>Sizes: on disks of 20 GB and up the system takes 30% (clamped 6–64 GB); on
+smaller disks 40% (at least 3 GB). <code>/home</code> runs to the end of the
+disk. Same rule as the desktop installer — one rule, two installers.</p>
+<h2>Two kinds of identity</h2>
+<p>The kernel finds <code>/</code> by GPT partition GUID
+(<code>root=PARTUUID=</code>), read straight out of the table at LBA 1: entry
+array position, entry size, GUID 16 bytes in, first three fields
+little-endian. The filesystem UUID would need an initramfs to resolve, and
+there is none — so the kernel gets the partition's own GUID instead.</p>
+<p><code>/init</code> and <code>/etc/fstab</code> then use filesystem UUIDs
+from <code>blkid</code>, pinned in <code>/etc/flx-disk</code>:</p>
+<pre>FLX_ROOT_UUID=...
+FLX_HOME_UUID=...</pre>
+<pre>UUID=...  /      ext4  defaults,noatime  0 1
+UUID=...  /home  ext4  defaults,noatime  0 2
+tmpfs     /tmp   tmpfs mode=1777,nosuid,nodev  0 0</pre>
+<p>Labels alone are never trusted: another disk carrying <code>FLX_ROOT</code>
+must never be mounted by accident. A system with no pin still finds FLX_HOME
+by label as a fallback.</p>
+<h2>Around the writes</h2>
+<ul>
+<li>Partition nodes are waited on (mdevd makes them): 20 tries, half a second
+apart, then give up loudly.</li>
+<li><code>/run/flxinstall-active</code> tells the automounter to step aside
+before partitioning; cleanup removes the flag and unmounts
+<code>/mnt/flx_root /mnt/flx_boot /mnt/flx_home</code> on every exit path,
+including interrupts.</li>
+<li><code>limine bios-install</code> is pointed at the disk and the BIOS boot
+partition number. If it fails, it warns and the disk boots UEFI only.</li>
+</ul>
+<hr>
+<p class="nav"><a href="s13-cache.html">prev</a> | <a href="index.html">home</a> | <a href="boot.html">next: installed boot</a></p>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>FAQ — FreeLinX docs</title>
+</head>
+<body>
+<h1>FAQ</h1>
+<p><b>Secure Boot says no.</b><br>Turn it off. No shim is shipped.</p>
+<p><b>Wifi worked on the installer but not after?</b><br>It did not — the live
+session had the same firmware. Check <code>ip a</code> for the interface, then
+<code>/etc/wpa_supplicant/flxwifi.conf</code>, then suspect the blob.</p>
+<p><b>Keymap step did nothing.</b><br>Correct. It records, it does not apply.
+Read <a href="s01-keymap.html">step 1</a>.</p>
+<p><b>Forgot every password.</b><br>Boot the rescue shell from the Limine menu
+and set new ones with <code>flxpasswd</code>. Physical access is root access;
+that is true everywhere.</p>
+<p><b>ssh as root asks for a key.</b><br><code>PermitRootLogin
+prohibit-password</code>. Log in as your user and doas. That is the point.</p>
+<p><b>xpkg fails on certificates.</b><br>The clock is wrong. ntpd fixes it in a
+minute or two; check <code>date</code>.</p>
+<p><b>Nothing is kept after reboot.</b><br>You run from RAM. Install with
+<code>xsetup --reset setup-disk</code>, then <code>xsetup</code>.</p>
+<p><b>Can I reinstall without losing /home?</b><br>That is why it is its own
+partition. Reinstall writes FLX_ROOT; FLX_HOME is reformatted only if you let
+it partition again — back it up first anyway.</p>
+<p><b>Empty root password?</b><br>Refused by the installer, and good. Set one
+with <code>flxpasswd</code> from a root shell if you ever clear it.</p>
+<p><b>Firefox in the live session?</b><br>Needs RAM — the overlay is 75% of it.
+On small machines, install first.</p>
+<hr>
+<p class="nav"><a href="shots.html">prev</a> | <a href="index.html">home</a> | <a href="links.html">next: links</a></p>
+</body>
+</html>

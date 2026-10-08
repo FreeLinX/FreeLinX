@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 12 lbu — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 12: setup-lbu</h1>
+<p>Where are changes to the system kept. It reads the answer step 11 left in
+<code>/etc/xsetup-disk-mode</code> and reports, nothing to choose:</p>
+<ul>
+<li><code>sys</code> — the system is on a disk. <code>/usr /etc /var /root
+/bin /sbin /lib</code> are on the root partition, so every change is kept.</li>
+<li>anything else — the system runs from RAM. Changes are lost on reboot.
+There is no overlay that saves RAM changes to another disk, and the step says
+so instead of asking for a disk it would not use. To keep things:
+<code>xsetup --reset setup-disk</code>, then <code>xsetup</code>.</li>
+</ul>
+<hr>
+<p class="nav"><a href="s11-disk.html">prev</a> | <a href="index.html">home</a> | <a href="s13-cache.html">next: step 13</a></p>
+</body>
+</html>

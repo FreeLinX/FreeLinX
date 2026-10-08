@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 9 user — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 9: setup-user</h1>
+<p>A system used only as root is a system where one typo is fatal. This step
+makes somewhere else to stand.</p>
+<p>Names take letters, digits, dash and underscore, must start with a letter
+or underscore, 32 chars at most. Upper case is folded to lower, out loud
+(<code>Kanan -&gt; kanan</code>), because passwd lookups are case sensitive and
+a mixed-case name is a trap for whoever comes next.</p>
+<p>Accounts start at uid/gid 1000, first free wins. The shell comes from
+<code>/etc/flx-shell</code> (mksh on base). Home is made now under
+<code>/home</code>, mode 700, and moved onto FLX_HOME by setup-disk
+later.</p>
+<p>Membership: a group of its own plus <code>audio video input storage
+users</code> — and <code>wheel</code> only if you say yes when asked. It is
+asked, not assumed: an account meant to be ordinary used to land in wheel
+anyway and could become root with its own password.</p>
+<p>Password is optional here, unlike root's. Empty warns that anyone reaching
+the machine can log in as them, and prints the one-liner that sets one later
+from a root shell.</p>
+<hr>
+<p class="nav"><a href="s08-repos.html">prev</a> | <a href="index.html">home</a> | <a href="s10-sshd.html">next: step 10</a></p>
+</body>
+</html>

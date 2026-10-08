@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Users — FreeLinX docs</title>
+</head>
+<body>
+<h1>Users</h1>
+<pre>doas flxadduser bob            # plain account
+doas flxadduser bob --admin    # wheel too, so doas works</pre>
+<p>Only <code>wheel</code> may use doas. The rule in
+<code>/etc/doas.conf</code>:</p>
+<pre>permit persist :wheel</pre>
+<p>The file is 0600. The image's doas.conf already carries rules for power and
+network tools; new installs append the wheel rule instead of rewriting the
+file and dropping them.</p>
+<h2>Passwords</h2>
+<p>Everything goes through <code>flxpasswd</code> and libc
+<code>crypt(3)</code>, stdin only. <code>/etc/shadow</code> is 0600,
+<code>/root</code> 0700, <code>/tmp</code> 1777. The escalation binaries are
+setuid, nothing else is:</p>
+<pre>doas unix_chkpwd su newgrp   # 4755, and that is all</pre>
+<h2>The live user is gone</h2>
+<p>Install removes <code>live</code> from passwd, shadow and group, deletes
+the passwordless doas rule and <code>/home/live</code>. Whatever was
+convenient on the medium does not follow you onto the disk.</p>
+<hr>
+<p class="nav"><a href="net.html">prev</a> | <a href="index.html">home</a> | <a href="desktop.html">next: desktop</a></p>
+</body>
+</html>

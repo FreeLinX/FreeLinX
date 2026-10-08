@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 2 hostname — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 2: setup-hostname</h1>
+<p>Default is the current name, or <code>freelinx</code>. The name must be
+RFC 1123: letters, digits, dots and dashes, in labels of 1–63 chars, 253 in
+all, no label starting or ending with a dash. Anything else is refused with
+the reason, not a shrug.</p>
+<p>It goes in three places, because all three are needed:</p>
+<pre>hostname "$name"        # this boot, now
+/etc/hostname           # survives reboot
+/etc/hosts              # so local resolution never stalls on DNS</pre>
+<p><code>/etc/hosts</code> is rewritten whole:</p>
+<pre>127.0.0.1	localhost localhost.localdomain
+::1		localhost localhost.localdomain
+127.0.1.1	your-name</pre>
+<p>127.0.0.1 stays on the first line. Some software assumes the loopback
+resolves through it.</p>
+<hr>
+<p class="nav"><a href="s01-keymap.html">prev</a> | <a href="index.html">home</a> | <a href="s03-net.html">next: step 3</a></p>
+</body>
+</html>

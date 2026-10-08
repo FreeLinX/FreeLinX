@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 13 apkcache — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 13: setup-apkcache</h1>
+<p>Where downloaded package files are kept. xpkg keeps them in
+<code>/var/cache/xpkg</code>:</p>
+<ul>
+<li>installed system — <code>/var</code> is on the root partition, so the
+cache is on the disk and survives reboots.</li>
+<li>running from RAM — the cache is in RAM and goes with the next reboot.</li>
+</ul>
+<p><code>xpkg clean</code> empties it any time. That is the whole step.</p>
+<hr>
+<p class="nav"><a href="s12-lbu.html">prev</a> | <a href="index.html">home</a> | <a href="disk.html">next: disk layout</a></p>
+</body>
+</html>

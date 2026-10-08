@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 6 proxy — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 6: setup-proxy</h1>
+<p>Default is no proxy (the prompt reads <code>[y/N]</code> and means it).
+Saying no writes an empty <code>/etc/proxy.conf</code> and removes the
+profile hook — a stale proxy from a previous install is a failure nobody can
+explain later. Answering yes and then giving an empty host counts as no, not
+an error.</p>
+<p>With host, port (default 8080), optional user and password:</p>
+<pre>/etc/proxy.conf           the URL, 0600 (auth line appended if any)
+/etc/profile.d/proxy.sh   HTTP_PROXY HTTPS_PROXY http_proxy https_proxy, exported</pre>
+<p>A scheme-less host is completed as <code>http://</code>, which is what
+people type. Three things read it: the installer now, xpkg as environment, and
+anything you start later via <code>/etc/environment</code>.</p>
+<hr>
+<p class="nav"><a href="s05-tz.html">prev</a> | <a href="index.html">home</a> | <a href="s07-ntp.html">next: step 7</a></p>
+</body>
+</html>

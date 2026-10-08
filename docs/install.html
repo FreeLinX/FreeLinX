@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Install — FreeLinX docs</title>
+</head>
+<body>
+<h1>Install</h1>
+<pre>xsetup                  # every step not done yet, in order
+xsetup --list           # the steps
+xsetup --status         # which are done
+xsetup --reset NAME     # forget one step, so it runs again
+xsetup setup-sshd       # run one step on its own</pre>
+<p>Progress lives in <code>/etc/xsetup.state</code> because it must survive a
+reboot mid-install. A step that fails is not recorded, so a typo never becomes
+permanent. Only <code>setup-disk</code> writes to a disk.</p>
+<h2>The thirteen steps</h2>
+<table>
+<tr><th>#</th><th>Step</th><th>Does</th></tr>
+<tr><td>1</td><td><a href="s01-keymap.html">setup-keymap</a></td><td>records the keyboard layout</td></tr>
+<tr><td>2</td><td><a href="s02-hostname.html">setup-hostname</a></td><td>names the machine, three places</td></tr>
+<tr><td>3</td><td><a href="s03-net.html">setup-interfaces</a></td><td>wired dhcp/static/off, plus wifi</td></tr>
+<tr><td>4</td><td><a href="s04-passwd.html">setup-passwd</a></td><td>root password, empty refused</td></tr>
+<tr><td>5</td><td><a href="s05-tz.html">setup-timezone</a></td><td>Region/City menus, copies the zone</td></tr>
+<tr><td>6</td><td><a href="s06-proxy.html">setup-proxy</a></td><td>HTTP proxy or none, default none</td></tr>
+<tr><td>7</td><td><a href="s07-ntp.html">setup-ntp</a></td><td>ntpd on, or nothing</td></tr>
+<tr><td>8</td><td><a href="s08-repos.html">setup-apkrepos</a></td><td>points xpkg at the signed repo</td></tr>
+<tr><td>9</td><td><a href="s09-user.html">setup-user</a></td><td>a normal account, wheel optional</td></tr>
+<tr><td>10</td><td><a href="s10-sshd.html">setup-sshd</a></td><td>ssh daemon, off unless you insist</td></tr>
+<tr><td>11</td><td><a href="s11-disk.html">setup-disk</a></td><td>the disk. erases it. asks first.</td></tr>
+<tr><td>12</td><td><a href="s12-lbu.html">setup-lbu</a></td><td>where changes are kept</td></tr>
+<tr><td>13</td><td><a href="s13-cache.html">setup-apkcache</a></td><td>where downloads are kept</td></tr>
+</table>
+<p>Each step also runs standalone and asks nothing twice. The menus print no
+color at all — white text survives pipes, logs and serial lines, which is how
+the installer is tested and how headless machines read it.</p>
+<hr>
+<p class="nav"><a href="live.html">prev</a> | <a href="index.html">home</a> | <a href="s01-keymap.html">next: step 1</a></p>
+</body>
+</html>

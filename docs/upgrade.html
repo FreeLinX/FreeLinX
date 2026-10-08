@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Upgrade — FreeLinX docs</title>
+</head>
+<body>
+<h1>Upgrade</h1>
+<p>Boot the new release's ISO on the installed machine and run:</p>
+<pre>flxupgrade
+doas xpkg upgrade</pre>
+<p>What it replaces: the system files (<code>/usr /bin /sbin /lib</code>,
+<code>/init</code>), the <code>/etc</code> files the new release has and yours
+lacks, and the kernel plus Limine on the boot partition.</p>
+<p>What it keeps: your <code>/etc</code> settings, users, installed packages
+and all of <code>/home</code>. Then <code>xpkg upgrade</code> moves the
+packages to the new repo state.</p>
+<p>Never replace the files of a published release by hand — bump the version
+instead. The version stamps <code>/etc/os-release</code>, the banner and the
+boot menu together, and <code>/init</code> compares it against the one on disk
+to decide what needs refreshing.</p>
+<hr>
+<p class="nav"><a href="pkgs.html">prev</a> | <a href="index.html">home</a> | <a href="build.html">next: build</a></p>
+</body>
+</html>

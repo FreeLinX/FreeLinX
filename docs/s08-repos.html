@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>Step 8 repos — FreeLinX docs</title>
+</head>
+<body>
+<h1>Step 8: setup-apkrepos</h1>
+<p>Despite the name, FreeLinX uses xpkg, not apk. The file is
+<code>/etc/xpkg/repos.conf</code>, one URL per line, highest priority first.
+The default is a public dataset over HTTPS — reading needs no account or
+token, only publishing does, and installing does not publish.</p>
+<pre>https://huggingface.co/datasets/FreeLinX/packages/resolve/main</pre>
+<p>The step writes the file directly instead of appending, so re-running
+replaces the entry instead of doubling it. Then it runs
+<code>xpkg update</code>. A failed refresh is not fatal — the install can
+finish and the network can be fixed after — but it says so instead of
+pretending. An <code>http://</code> URL warns (xpkg will not step HTTPS down
+to HTTP) and asks again.</p>
+<hr>
+<p class="nav"><a href="s07-ntp.html">prev</a> | <a href="index.html">home</a> | <a href="s09-user.html">next: step 9</a></p>
+</body>
+</html>
